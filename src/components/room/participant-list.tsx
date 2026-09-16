@@ -18,19 +18,29 @@ export function ParticipantList({
     name,
     micOn,
     screenOn,
+    connected,
     isSelf,
   }: {
     name: string;
     micOn: boolean;
     screenOn: boolean;
+    connected?: boolean;
     isSelf?: boolean;
   }) => (
     <div className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/60">
-      <Avatar className="h-10 w-10">
-        <AvatarFallback className="bg-gradient-to-br from-accent to-primary font-display text-sm font-bold text-primary-foreground">
-          {initials(name)}
-        </AvatarFallback>
-      </Avatar>
+      <div className="relative">
+        <Avatar className="h-10 w-10">
+          <AvatarFallback className="bg-gradient-to-br from-accent to-primary font-display text-sm font-bold text-primary-foreground">
+            {initials(name)}
+          </AvatarFallback>
+        </Avatar>
+        <span
+          className={cn(
+            "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background",
+            connected ? "bg-primary" : "bg-muted-foreground/60",
+          )}
+        />
+      </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">
           {name}
@@ -68,9 +78,21 @@ export function ParticipantList({
       </div>
       <div className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
         {peers.map((p) => (
-          <Row key={p.userId} name={p.displayName} micOn={p.micOn} screenOn={p.screenOn} />
+          <Row
+            key={p.userId}
+            name={p.displayName}
+            micOn={p.micOn}
+            screenOn={p.screenOn}
+            connected={p.connected}
+          />
         ))}
-        <Row name={self.displayName} micOn={self.micOn} screenOn={self.screenOn} isSelf />
+        <Row
+          name={self.displayName}
+          micOn={self.micOn}
+          screenOn={self.screenOn}
+          connected
+          isSelf
+        />
       </div>
     </div>
   );

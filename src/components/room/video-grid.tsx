@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { MicOff, MonitorUp } from "lucide-react";
+import { Loader2, MicOff, MonitorUp } from "lucide-react";
 import { cn, initials } from "@/lib/utils";
 import type { RemotePeer, SelfState } from "@/lib/webrtc";
 
@@ -28,6 +28,22 @@ function StreamVideo({
       className={cn("h-full w-full", className)}
     />
   );
+}
+
+/** Hidden audio element that plays a remote peer's mic track. */
+function RemoteAudio({ stream }: { stream: MediaStream | null }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    if (ref.current && ref.current.srcObject !== stream) {
+      ref.current.srcObject = stream;
+    }
+    if (ref.current && stream) {
+      void ref.current.play().catch(() => {
+        /* autoplay blocked until user interaction — retry handled by React */
+      });
+    }
+  }, [stream]);
+  return <audio ref={ref} autoPlay playsInline className="hidden" />;
 }
 
 export function AvatarTile({
@@ -120,6 +136,7 @@ export function VideoTile({
 
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-border bg-black/30">
+      {!isSelf && peer && <RemoteAudio stream={peer.stream} />}
       {hasVideo ? (
         <>
           <StreamVideo
@@ -134,6 +151,14 @@ export function VideoTile({
           <AvatarTile name={name} micOn={micOn} isSelf={isSelf} />
           <TileLabel name={name} screenOn={false} micOn={micOn} self={isSelf} />
         </>
+      )}
+      {peer && !peer.connected && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
+          <span className="flex items-center gap-2 rounded-full bg-card/90 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {t("room.connecting")}
+          </span>
+        </div>
       )}
     </div>
   );

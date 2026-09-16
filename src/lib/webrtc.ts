@@ -29,6 +29,7 @@ export type RemotePeer = {
   screenOn: boolean;
   stream: MediaStream;
   hasVideo: boolean;
+  connected: boolean;
 };
 
 export type SelfState = {
@@ -51,8 +52,9 @@ type PeerConn = {
   pc: RTCPeerConnection;
   stream: MediaStream;
   makingOffer: boolean;
-  polite: boolean;
   ignoreOffer: boolean;
+  polite: boolean;
+  pendingCandidates: RTCIceCandidateInit[];
 };
 
 const RTC_CONFIG: RTCConfiguration = {
@@ -66,7 +68,8 @@ const RTC_CONFIG: RTCConfiguration = {
  * Mesh WebRTC manager for one room: voice (mic) + screen sharing.
  * Signaling flows through the `signal_messages` table (postgres_changes),
  * presence through a realtime presence channel. Uses the "perfect
- * negotiation" pattern (polite/impolite) to resolve offer glare.
+ * negotiation" pattern (polite/impolite + rollback) to resolve offer glare,
+ * and queues ICE candidates until the remote description is set.
  */
 export class RoomClient {
   private roomId: string;
@@ -82,6 +85,8 @@ export class RoomClient {
 
   private peers = new Map<string, PeerConn>();
   private presence = new Map<string, PresenceData>();
+  private peerRetries = new Map<string, number>();
+  private retryTimers: number[] = [];
 
   private signalChannel: RealtimeChannel | null = null;
   private presenceChannel: RealtimeChannel | null = null;
@@ -240,6 +245,8 @@ export class RoomClient {
     } catch {
       /* noop */
     }
+    this.retryTimers.forEach((timer) => window.clearTimeout(timer));
+    this.retryTimers = [];
     if (this.presenceChannel) await supabase.removeChannel(this.presenceChannel);
     if (this.signalChannel) await supabase.removeChannel(this.signalChannel);
     this.presenceChannel = null;
@@ -258,8 +265,9 @@ export class RoomClient {
       pc,
       stream,
       makingOffer: false,
-      polite: this.userId > p.userId,
       ignoreOffer: false,
+      polite: this.userId > p.userId,
+      pendingCandidates: [],
     };
     this.peers.set(p.userId, peer);
 
@@ -283,6 +291,30 @@ export class RoomClient {
       this.emit();
     };
 
+    pc.onconnectionstatechange = () => {
+      if (this.destroyed) return;
+      if (pc.connectionState === "connected") {
+        this.peerRetries.set(p.userId, 0);
+      } else if (
+        pc.connectionState === "failed" &&
+        this.peers.has(p.userId)
+      ) {
+        // Self-heal flaky connections (up to 3 attempts per peer).
+        const attempts = this.peerRetries.get(p.userId) ?? 0;
+        if (attempts < 3) {
+          this.peerRetries.set(p.userId, attempts + 1);
+          this.closePeer(p.userId);
+          const timer = window.setTimeout(() => {
+            const pres = this.presence.get(p.userId);
+            if (pres && !this.destroyed) this.createPeer(pres);
+            this.emit();
+          }, 1000);
+          this.retryTimers.push(timer);
+        }
+      }
+      this.emit();
+    };
+
     pc.onnegotiationneeded = () => void this.onNegotiationNeeded(peer);
 
     if (this.localMic) {
@@ -296,7 +328,9 @@ export class RoomClient {
   }
 
   private async onNegotiationNeeded(peer: PeerConn) {
-    if (peer.makingOffer || this.destroyed) return;
+    if (peer.makingOffer || peer.pc.signalingState !== "stable" || this.destroyed) {
+      return;
+    }
     peer.makingOffer = true;
     try {
       await peer.pc.setLocalDescription(await peer.pc.createOffer());
@@ -338,7 +372,8 @@ export class RoomClient {
       peer.ignoreOffer = false;
       return;
     }
-    const ready = !peer.makingOffer && peer.pc.signalingState === "stable";
+    const ready =
+      !peer.makingOffer && peer.pc.signalingState === "stable";
     if (!ready) {
       if (peer.polite) {
         try {
@@ -360,6 +395,7 @@ export class RoomClient {
     desc: RTCSessionDescriptionInit,
   ) {
     await peer.pc.setRemoteDescription(desc);
+    await this.flushIceCandidates(peer);
     const answer = await peer.pc.createAnswer();
     await peer.pc.setLocalDescription(answer);
     await this.sendSignal(peer.userId, { type: "answer", sdp: answer });
@@ -368,16 +404,36 @@ export class RoomClient {
   private async handleAnswer(peer: PeerConn, desc: RTCSessionDescriptionInit) {
     if (peer.pc.signalingState !== "have-local-offer") return;
     await peer.pc.setRemoteDescription(desc);
+    await this.flushIceCandidates(peer);
   }
 
   private async handleIce(
     peer: PeerConn,
     candidate: RTCIceCandidateInit | null,
   ) {
+    if (!candidate) return;
+    if (peer.pc.remoteDescription === null) {
+      // Remote description not set yet — queue until offer/answer arrives.
+      peer.pendingCandidates.push(candidate);
+      return;
+    }
     try {
       await peer.pc.addIceCandidate(candidate);
     } catch (err) {
       console.warn("TelaViva: ICE rejeitado", err);
+    }
+  }
+
+  private async flushIceCandidates(peer: PeerConn) {
+    if (peer.pc.remoteDescription === null) return;
+    const queue = peer.pendingCandidates;
+    peer.pendingCandidates = [];
+    for (const candidate of queue) {
+      try {
+        await peer.pc.addIceCandidate(candidate);
+      } catch (err) {
+        console.warn("TelaViva: ICE rejeitado", err);
+      }
     }
   }
 
@@ -424,7 +480,7 @@ export class RoomClient {
   }
 
   private async updatePresence() {
-    await this.presenceChannel?.updatePresence({
+    await this.presenceChannel?.track({
       userId: this.userId,
       displayName: this.displayName,
       micOn: this.micOn,
@@ -445,6 +501,7 @@ export class RoomClient {
         screenOn: pres?.screenOn ?? false,
         stream: peer.stream,
         hasVideo,
+        connected: peer.pc.connectionState === "connected",
       });
     });
     this.onState({
