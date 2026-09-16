@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { MicOff, MonitorUp } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, initials } from "@/lib/utils";
 import type { RemotePeer, SelfState } from "@/lib/webrtc";
 
 function StreamVideo({
