@@ -127,6 +127,7 @@ export function VideoTile({
   isSelf?: boolean;
   self?: SelfState;
 }) {
+  const { t } = useTranslation();
   const name = isSelf ? (self?.displayName ?? "") : (peer?.displayName ?? "");
   const micOn = isSelf ? (self?.micOn ?? true) : (peer?.micOn ?? true);
   const screenOn = isSelf ? (self?.screenOn ?? false) : (peer?.screenOn ?? false);
