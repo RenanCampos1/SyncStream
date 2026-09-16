@@ -2,6 +2,7 @@ import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
 import Home from "./pages/Home";
 import Room from "./pages/Room";
+import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 
 export const routers = [
@@ -24,6 +25,11 @@ export const routers = [
     path: "/room/:code",
     name: "room",
     element: <Room />,
+  },
+  {
+    path: "/profile",
+    name: "profile",
+    element: <Profile />,
   },
   /* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */
   {

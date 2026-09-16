@@ -2,7 +2,8 @@ import { useTranslation } from "react-i18next";
 import { Mic, MicOff, MonitorUp, Users } from "lucide-react";
 import { cn, initials } from "@/lib/utils";
 import type { RemotePeer, SelfState } from "@/lib/webrtc";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Equalizer } from "./video-grid";
 
 export function ParticipantList({
   self,
@@ -16,20 +17,30 @@ export function ParticipantList({
 
   const Row = ({
     name,
+    avatarUrl,
     micOn,
     screenOn,
+    speaking,
     connected,
     isSelf,
   }: {
     name: string;
+    avatarUrl?: string | null;
     micOn: boolean;
     screenOn: boolean;
+    speaking?: boolean;
     connected?: boolean;
     isSelf?: boolean;
   }) => (
-    <div className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/60">
+    <div
+      className={cn(
+        "flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/60",
+        speaking && "bg-primary/10",
+      )}
+    >
       <div className="relative">
         <Avatar className="h-10 w-10">
+          <AvatarImage src={avatarUrl ?? undefined} alt={name} />
           <AvatarFallback className="bg-gradient-to-br from-accent to-primary font-display text-sm font-bold text-primary-foreground">
             {initials(name)}
           </AvatarFallback>
@@ -42,10 +53,13 @@ export function ParticipantList({
         />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">
-          {name}
+        <p className="flex items-center gap-2 truncate text-sm font-medium">
+          <span className={cn("truncate", speaking && "speak-pulse font-semibold")}>
+            {name}
+          </span>
+          {speaking && <Equalizer className="shrink-0" />}
           {isSelf && (
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
+            <span className="shrink-0 text-xs font-normal text-muted-foreground">
               {t("room.self")}
             </span>
           )}
@@ -81,15 +95,19 @@ export function ParticipantList({
           <Row
             key={p.userId}
             name={p.displayName}
+            avatarUrl={p.avatarUrl}
             micOn={p.micOn}
             screenOn={p.screenOn}
+            speaking={p.speaking}
             connected={p.connected}
           />
         ))}
         <Row
           name={self.displayName}
+          avatarUrl={self.avatarUrl}
           micOn={self.micOn}
           screenOn={self.screenOn}
+          speaking={self.speaking}
           connected
           isSelf
         />

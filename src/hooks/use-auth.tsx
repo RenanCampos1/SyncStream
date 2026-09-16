@@ -16,6 +16,7 @@ type AuthContextValue = {
   session: Session | null;
   loading: boolean;
   displayName: string;
+  avatarUrl: string | null;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (
     name: string,
@@ -107,9 +108,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return (user.email ?? "Usuário").split("@")[0];
   }, [user]);
 
+  const avatarUrl = useMemo(() => {
+    if (!user) return null;
+    const meta = user.user_metadata as { avatar_url?: string } | null;
+    return meta?.avatar_url ?? null;
+  }, [user]);
+
   const value = useMemo(
-    () => ({ user, session, loading, displayName, signIn, signUp, signOut }),
-    [user, session, loading, displayName, signIn, signUp, signOut],
+    () => ({
+      user,
+      session,
+      loading,
+      displayName,
+      avatarUrl,
+      signIn,
+      signUp,
+      signOut,
+    }),
+    [user, session, loading, displayName, avatarUrl, signIn, signUp, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

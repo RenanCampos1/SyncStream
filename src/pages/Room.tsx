@@ -9,6 +9,7 @@ import {
   Copy,
   Loader2,
   MessageSquare,
+  UserRound,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -60,7 +61,7 @@ const toChatMessage = (m: MessageRow): ChatMessage => ({
 
 export default function Room() {
   const { code } = useParams();
-  const { user, loading: authLoading, displayName } = useAuth();
+  const { user, loading: authLoading, displayName, avatarUrl } = useAuth();
   const navigate = useNavigate();
   const { t } = useTranslation();
 
@@ -157,6 +158,7 @@ export default function Room() {
           roomCode: roomRow.code,
           userId: user.id,
           displayName,
+          avatarUrl,
         },
         (state) => setClientState(state),
       );
@@ -166,7 +168,7 @@ export default function Room() {
     })();
 
     return dispose;
-  }, [authLoading, user, code, navigate, displayName]);
+  }, [authLoading, user, code, navigate, displayName, avatarUrl]);
 
   const sendMessage = async (content: string) => {
     if (!room || !user) return;
@@ -269,6 +271,14 @@ export default function Room() {
           >
             {copied ? <Check /> : <Copy />}
             {copied ? t("common.copied") : t("room.invite")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate("/profile")}
+            aria-label={t("common.profile")}
+          >
+            <UserRound />
           </Button>
           <Button
             variant="ghost"

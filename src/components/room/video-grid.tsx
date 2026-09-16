@@ -46,14 +46,34 @@ function RemoteAudio({ stream }: { stream: MediaStream | null }) {
   return <audio ref={ref} autoPlay playsInline className="hidden" />;
 }
 
+export function Equalizer({ className }: { className?: string }) {
+  return (
+    <span className={cn("flex h-3 items-end gap-[3px]", className)}>
+      <span className="animate-equalize h-full w-[3px] rounded-full bg-primary" />
+      <span
+        className="animate-equalize h-full w-[3px] rounded-full bg-primary"
+        style={{ animationDelay: "0.18s" }}
+      />
+      <span
+        className="animate-equalize h-full w-[3px] rounded-full bg-primary"
+        style={{ animationDelay: "0.36s" }}
+      />
+    </span>
+  );
+}
+
 export function AvatarTile({
   name,
+  avatarUrl,
   micOn,
+  speaking,
   isSelf,
   className,
 }: {
   name: string;
+  avatarUrl?: string | null;
   micOn: boolean;
+  speaking?: boolean;
   isSelf?: boolean;
   className?: string;
 }) {
@@ -65,11 +85,30 @@ export function AvatarTile({
         className,
       )}
     >
-      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-accent to-primary font-display text-xl font-bold text-primary-foreground shadow-lg md:h-24 md:w-24 md:text-3xl">
-        {initials(name)}
+      <div
+        className={cn(
+          "flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-accent to-primary shadow-lg transition-shadow duration-300 md:h-24 md:w-24",
+          speaking && "shadow-[0_0_30px_hsl(var(--primary)/0.8)]",
+        )}
+      >
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={name}
+            crossOrigin="anonymous"
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <span className="font-display text-xl font-bold text-primary-foreground md:text-3xl">
+            {initials(name)}
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground md:text-base">
-        {name}
+        <span className={cn("truncate", speaking && "speak-pulse font-semibold")}>
+          {name}
+        </span>
+        {speaking && <Equalizer />}
         {isSelf && (
           <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {t("room.self")}
@@ -87,18 +126,25 @@ function TileLabel({
   name,
   screenOn,
   micOn,
+  speaking,
   self,
 }: {
   name: string;
   screenOn: boolean;
   micOn: boolean;
+  speaking?: boolean;
   self?: boolean;
 }) {
   const { t } = useTranslation();
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent p-3 pt-8">
       <div className="flex items-center gap-2 overflow-hidden">
-        <span className="truncate text-sm font-semibold text-white">
+        <span
+          className={cn(
+            "truncate text-sm font-semibold text-white",
+            speaking && "speak-pulse",
+          )}
+        >
           {name}
           {self && (
             <span className="ml-2 text-xs text-white/70">
@@ -112,6 +158,7 @@ function TileLabel({
             {t("room.screenSharing")}
           </span>
         )}
+        {speaking && <Equalizer className="shrink-0" />}
       </div>
       {!micOn && <MicOff className="h-4 w-4 shrink-0 text-red-400" />}
     </div>
@@ -129,8 +176,12 @@ export function VideoTile({
 }) {
   const { t } = useTranslation();
   const name = isSelf ? (self?.displayName ?? "") : (peer?.displayName ?? "");
+  const avatarUrl = isSelf ? (self?.avatarUrl ?? null) : (peer?.avatarUrl ?? null);
   const micOn = isSelf ? (self?.micOn ?? true) : (peer?.micOn ?? true);
   const screenOn = isSelf ? (self?.screenOn ?? false) : (peer?.screenOn ?? false);
+  const speaking = isSelf
+    ? (self?.speaking ?? false)
+    : (peer?.speaking ?? false);
   const hasVideo = isSelf
     ? (self?.screenOn ?? false)
     : (peer?.hasVideo ?? false);
@@ -145,12 +196,30 @@ export function VideoTile({
             muted
             className="object-contain"
           />
-          <TileLabel name={name} screenOn={screenOn} micOn={micOn} self={isSelf} />
+          <TileLabel
+            name={name}
+            screenOn={screenOn}
+            micOn={micOn}
+            speaking={speaking}
+            self={isSelf}
+          />
         </>
       ) : (
         <>
-          <AvatarTile name={name} micOn={micOn} isSelf={isSelf} />
-          <TileLabel name={name} screenOn={false} micOn={micOn} self={isSelf} />
+          <AvatarTile
+            name={name}
+            avatarUrl={avatarUrl}
+            micOn={micOn}
+            speaking={speaking}
+            isSelf={isSelf}
+          />
+          <TileLabel
+            name={name}
+            screenOn={false}
+            micOn={micOn}
+            speaking={speaking}
+            self={isSelf}
+          />
         </>
       )}
       {peer && !peer.connected && (

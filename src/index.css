@@ -122,6 +122,10 @@ body,
   .animate-equalize {
     animation: equalize 0.9s ease-in-out infinite;
   }
+
+  .speak-pulse {
+    animation: speak-pulse 0.7s ease-in-out infinite;
+  }
 }
 
 @keyframes pulse-live {
@@ -131,6 +135,18 @@ body,
   }
   50% {
     box-shadow: 0 0 0 6px hsl(357 90% 60% / 0);
+  }
+}
+
+@keyframes speak-pulse {
+  0%,
+  100% {
+    color: hsl(var(--primary));
+    text-shadow: 0 0 10px hsl(var(--primary) / 0.7);
+  }
+  50% {
+    color: hsl(var(--foreground));
+    text-shadow: none;
   }
 }
 

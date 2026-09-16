@@ -1,6 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
+export const MIC_DEVICE_KEY = "telaviva.micDeviceId";
+
 export type SignalPayload =
   | { type: "offer"; sdp: RTCSessionDescriptionInit }
   | { type: "answer"; sdp: RTCSessionDescriptionInit }
@@ -18,6 +20,7 @@ export type SignalMessage = {
 export type PresenceData = {
   userId: string;
   displayName: string;
+  avatarUrl: string | null;
   micOn: boolean;
   screenOn: boolean;
 };
@@ -25,8 +28,10 @@ export type PresenceData = {
 export type RemotePeer = {
   userId: string;
   displayName: string;
+  avatarUrl: string | null;
   micOn: boolean;
   screenOn: boolean;
+  speaking: boolean;
   stream: MediaStream;
   hasVideo: boolean;
   connected: boolean;
@@ -35,8 +40,10 @@ export type RemotePeer = {
 export type SelfState = {
   userId: string;
   displayName: string;
+  avatarUrl: string | null;
   micOn: boolean;
   screenOn: boolean;
+  speaking: boolean;
   screenStream: MediaStream | null;
 };
 
@@ -49,12 +56,15 @@ export type RoomClientState = {
 type PeerConn = {
   userId: string;
   displayName: string;
+  avatarUrl: string | null;
   pc: RTCPeerConnection;
   stream: MediaStream;
   makingOffer: boolean;
   ignoreOffer: boolean;
   polite: boolean;
   pendingCandidates: RTCIceCandidateInit[];
+  lastOfferAt: number;
+  speaking: boolean;
 };
 
 const RTC_CONFIG: RTCConfiguration = {
@@ -64,24 +74,30 @@ const RTC_CONFIG: RTCConfiguration = {
   ],
 };
 
+const SPEAKING_THRESHOLD = 0.045;
+
 /**
  * Mesh WebRTC manager for one room: voice (mic) + screen sharing.
  * Signaling flows through the `signal_messages` table (postgres_changes),
- * presence through a realtime presence channel. Uses the "perfect
- * negotiation" pattern (polite/impolite + rollback) to resolve offer glare,
- * and queues ICE candidates until the remote description is set.
+ * presence through a realtime presence channel. Uses "perfect negotiation"
+ * (polite/impolite + rollback), queues ICE candidates until the remote
+ * description is set, and runs a watchdog that keeps re-negotiating until
+ * every peer is connected (self-healing for lost signaling messages).
+ * A Web Audio analyser per stream detects who is speaking.
  */
 export class RoomClient {
   private roomId: string;
   private roomCode: string;
   private userId: string;
   private displayName: string;
+  private avatarUrl: string | null;
 
   private localMic: MediaStream | null = null;
   private localScreen: MediaStream | null = null;
   private micOn = true;
   private screenOn = false;
   private micDenied = false;
+  private selfSpeaking = false;
 
   private peers = new Map<string, PeerConn>();
   private presence = new Map<string, PresenceData>();
@@ -92,6 +108,15 @@ export class RoomClient {
   private presenceChannel: RealtimeChannel | null = null;
   private destroyed = false;
 
+  private watchdog: number | null = null;
+  private speakTimer: number | null = null;
+  private audioCtx: AudioContext | null = null;
+  private analysers = new Map<
+    string,
+    { analyser: AnalyserNode; data: Uint8Array }
+  >();
+  private audioResumeHandler: (() => void) | null = null;
+
   private onState: (state: RoomClientState) => void;
 
   constructor(
@@ -100,6 +125,7 @@ export class RoomClient {
       roomCode: string;
       userId: string;
       displayName: string;
+      avatarUrl: string | null;
     },
     onState: (state: RoomClientState) => void,
   ) {
@@ -107,22 +133,20 @@ export class RoomClient {
     this.roomCode = opts.roomCode;
     this.userId = opts.userId;
     this.displayName = opts.displayName;
+    this.avatarUrl = opts.avatarUrl;
     this.onState = onState;
   }
 
   async join() {
-    try {
-      this.localMic = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
-      });
-    } catch {
-      this.micOn = false;
-      this.micDenied = true;
+    this.localMic = await this.acquireMic();
+    if (this.localMic) {
+      this.attachAnalyser(this.localMic, "self");
     }
 
     const presenceData: PresenceData = {
       userId: this.userId,
       displayName: this.displayName,
+      avatarUrl: this.avatarUrl,
       micOn: this.micOn,
       screenOn: this.screenOn,
     };
@@ -162,8 +186,6 @@ export class RoomClient {
       )
       .subscribe(async (status) => {
         if (status !== "SUBSCRIBED" || this.destroyed) return;
-        // Existing members are only available through presenceState() for a
-        // late joiner — connect to everyone already in the room.
         const state = this.presenceChannel?.presenceState() ?? {};
         Object.values(state).forEach((list) => {
           (list as PresenceData[]).forEach((p) => {
@@ -176,17 +198,14 @@ export class RoomClient {
         await this.presenceChannel?.track(presenceData);
         this.emit();
       });
+
+    this.startWatchdog();
+    this.startSpeakingDetector();
+    this.setupAudioResume();
   }
 
   getScreenOn() {
     return this.screenOn;
-  }
-
-  /** Deterministic single-initiator: the user with the larger id sends the
-   *  first offer, so the initial handshake never glares. Renegotiation
-   *  (screen share) is allowed from either side via perfect negotiation. */
-  private isInitiator(otherUserId: string) {
-    return this.userId > otherUserId;
   }
 
   toggleMic() {
@@ -240,6 +259,13 @@ export class RoomClient {
 
   async leave() {
     this.destroyed = true;
+    if (this.watchdog !== null) window.clearInterval(this.watchdog);
+    if (this.speakTimer !== null) window.clearInterval(this.speakTimer);
+    if (this.audioResumeHandler) {
+      window.removeEventListener("pointerdown", this.audioResumeHandler);
+      this.audioResumeHandler = null;
+    }
+    this.analysers.clear();
     this.peers.forEach((p) => this.closePeer(p.userId));
     this.peers.clear();
     this.presence.clear();
@@ -260,7 +286,91 @@ export class RoomClient {
     this.signalChannel = null;
   }
 
-  // ---------------- internal ----------------
+  // ---------------- media ----------------
+
+  private async acquireMic(): Promise<MediaStream | null> {
+    const base: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+    };
+    const savedDevice = localStorage.getItem(MIC_DEVICE_KEY);
+    if (savedDevice) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          audio: { ...base, deviceId: { exact: savedDevice } },
+        });
+      } catch {
+        /* device gone — fall back to default */
+      }
+    }
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: base });
+    } catch {
+      this.micOn = false;
+      this.micDenied = true;
+      return null;
+    }
+  }
+
+  private attachAnalyser(stream: MediaStream | null, key: string) {
+    if (!stream || stream.getAudioTracks().length === 0) return;
+    if (this.analysers.has(key)) return;
+    try {
+      if (!this.audioCtx) this.audioCtx = new AudioContext();
+      if (this.audioCtx.state === "suspended") {
+        void this.audioCtx.resume().catch(() => {});
+      }
+      const source = this.audioCtx.createMediaStreamSource(stream);
+      const analyser = this.audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.55;
+      source.connect(analyser);
+      this.analysers.set(key, {
+        analyser,
+        data: new Uint8Array(analyser.frequencyBinCount),
+      });
+    } catch (err) {
+      console.warn("TelaViva: analisador de áudio indisponível", err);
+    }
+  }
+
+  private startSpeakingDetector() {
+    this.speakTimer = window.setInterval(() => {
+      let changed = false;
+      this.analysers.forEach(({ analyser, data }, key) => {
+        analyser.getByteFrequencyData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) sum += data[i];
+        const avg = sum / data.length / 255;
+        const speaking = avg > SPEAKING_THRESHOLD;
+        if (key === "self") {
+          if (this.selfSpeaking !== speaking) {
+            this.selfSpeaking = speaking;
+            changed = true;
+          }
+        } else {
+          const peer = this.peers.get(key);
+          if (peer && peer.speaking !== speaking) {
+            peer.speaking = speaking;
+            changed = true;
+          }
+        }
+      });
+      if (changed) this.emit();
+    }, 120);
+  }
+
+  private setupAudioResume() {
+    const resume = () => {
+      if (this.audioCtx && this.audioCtx.state === "suspended") {
+        void this.audioCtx.resume().catch(() => {});
+      }
+    };
+    window.addEventListener("pointerdown", resume);
+    this.audioResumeHandler = resume;
+  }
+
+  // ---------------- connection ----------------
 
   private createPeer(p: PresenceData) {
     if (this.peers.has(p.userId) || this.destroyed) return;
@@ -269,12 +379,15 @@ export class RoomClient {
     const peer: PeerConn = {
       userId: p.userId,
       displayName: p.displayName,
+      avatarUrl: p.avatarUrl,
       pc,
       stream,
       makingOffer: false,
       ignoreOffer: false,
       polite: this.userId > p.userId,
       pendingCandidates: [],
+      lastOfferAt: 0,
+      speaking: false,
     };
     this.peers.set(p.userId, peer);
 
@@ -295,18 +408,21 @@ export class RoomClient {
           }
         });
       }
+      this.attachAnalyser(peer.stream, peer.userId);
       this.emit();
     };
 
     pc.onconnectionstatechange = () => {
       if (this.destroyed) return;
+      console.log(
+        "TelaViva: conexão com",
+        peer.displayName,
+        "->",
+        pc.connectionState,
+      );
       if (pc.connectionState === "connected") {
         this.peerRetries.set(p.userId, 0);
-      } else if (
-        pc.connectionState === "failed" &&
-        this.peers.has(p.userId)
-      ) {
-        // Self-heal flaky connections (up to 3 attempts per peer).
+      } else if (pc.connectionState === "failed" && this.peers.has(p.userId)) {
         const attempts = this.peerRetries.get(p.userId) ?? 0;
         if (attempts < 3) {
           this.peerRetries.set(p.userId, attempts + 1);
@@ -323,8 +439,6 @@ export class RoomClient {
     };
 
     pc.onnegotiationneeded = () => {
-      // Offer on first connection only if we are the initiator; once the
-      // connection exists (remote description set) either side may renegotiate.
       if (this.isInitiator(p.userId) || peer.pc.remoteDescription !== null) {
         void this.onNegotiationNeeded(peer);
       }
@@ -337,13 +451,16 @@ export class RoomClient {
       this.localScreen.getVideoTracks().forEach((t) => pc.addTrack(t, this.localScreen!));
     }
 
-    // Explicitly kick off the handshake even if no local tracks exist yet
-    // (e.g. microphone blocked), so the peer still connects.
     if (this.isInitiator(p.userId)) {
       void this.onNegotiationNeeded(peer);
     }
 
     this.emit();
+  }
+
+  /** Larger user id wins the role of first offerer. */
+  private isInitiator(otherUserId: string) {
+    return this.userId > otherUserId;
   }
 
   private async onNegotiationNeeded(peer: PeerConn) {
@@ -355,8 +472,10 @@ export class RoomClient {
       return;
     }
     peer.makingOffer = true;
+    peer.lastOfferAt = Date.now();
     try {
       await peer.pc.setLocalDescription(await peer.pc.createOffer());
+      console.log("TelaViva: oferta enviada para", peer.displayName);
       await this.sendSignal(peer.userId, {
         type: "offer",
         sdp: peer.pc.localDescription!,
@@ -368,18 +487,41 @@ export class RoomClient {
     }
   }
 
+  /** Watchdog: keep re-negotiating until every peer is connected. */
+  private startWatchdog() {
+    this.watchdog = window.setInterval(() => {
+      if (this.destroyed) return;
+      this.peers.forEach((peer) => {
+        if (peer.pc.connectionState === "connected") return;
+        if (Date.now() - peer.lastOfferAt < 4000) return;
+        void this.ensureNegotiation(peer);
+      });
+    }, 2500);
+  }
+
+  private async ensureNegotiation(peer: PeerConn) {
+    if (this.destroyed) return;
+    try {
+      if (peer.pc.signalingState === "have-local-offer") {
+        await peer.pc.setLocalDescription({ type: "rollback" });
+      }
+    } catch {
+      /* ignore */
+    }
+    await this.onNegotiationNeeded(peer);
+  }
+
   private async handleSignal(msg: SignalMessage) {
     const { from_user, payload } = msg;
     let peer = this.peers.get(from_user);
     if (!peer) {
       const pres = this.presence.get(from_user);
       if (pres) this.createPeer(pres);
-      // An offer can arrive before the presence sync — create the peer from
-      // the offer itself so the handshake is never dropped.
       if (!this.peers.has(from_user) && payload.type === "offer") {
         this.createPeer({
           userId: from_user,
           displayName: "…",
+          avatarUrl: null,
           micOn: true,
           screenOn: false,
         });
@@ -405,8 +547,7 @@ export class RoomClient {
       peer.ignoreOffer = false;
       return;
     }
-    const ready =
-      !peer.makingOffer && peer.pc.signalingState === "stable";
+    const ready = !peer.makingOffer && peer.pc.signalingState === "stable";
     if (!ready) {
       if (peer.polite) {
         try {
@@ -431,6 +572,7 @@ export class RoomClient {
     await this.flushIceCandidates(peer);
     const answer = await peer.pc.createAnswer();
     await peer.pc.setLocalDescription(answer);
+    console.log("TelaViva: resposta enviada para", peer.displayName);
     await this.sendSignal(peer.userId, { type: "answer", sdp: answer });
   }
 
@@ -446,7 +588,6 @@ export class RoomClient {
   ) {
     if (!candidate) return;
     if (peer.pc.remoteDescription === null) {
-      // Remote description not set yet — queue until offer/answer arrives.
       peer.pendingCandidates.push(candidate);
       return;
     }
@@ -471,17 +612,24 @@ export class RoomClient {
   }
 
   private async sendSignal(toUserId: string | null, payload: SignalPayload) {
-    await supabase.from("signal_messages").insert({
-      room_id: this.roomId,
-      from_user: this.userId,
-      to_user: toUserId,
-      payload,
-    });
+    try {
+      await supabase.from("signal_messages").insert({
+        room_id: this.roomId,
+        from_user: this.userId,
+        to_user: toUserId,
+        payload,
+      });
+    } catch (err) {
+      console.error("TelaViva: falha ao enviar sinal", err);
+    }
   }
+
+  // ---------------- presence ----------------
 
   private onPresenceJoin(list: PresenceData[]) {
     list.forEach((p) => {
       if (p.userId === this.userId) return;
+      console.log("TelaViva: presença entrou:", p.displayName);
       this.presence.set(p.userId, p);
       if (!this.peers.has(p.userId)) this.createPeer(p);
     });
@@ -493,13 +641,18 @@ export class RoomClient {
       if (p.userId === this.userId) return;
       this.presence.set(p.userId, p);
       const peer = this.peers.get(p.userId);
-      if (peer) peer.displayName = p.displayName;
+      if (peer) {
+        peer.displayName = p.displayName;
+        peer.avatarUrl = p.avatarUrl;
+      }
     });
     this.emit();
   }
 
   private onPresenceLeave(key: string) {
+    console.log("TelaViva: presença saiu:", key);
     this.presence.delete(key);
+    this.analysers.delete(key);
     this.closePeer(key);
     this.emit();
   }
@@ -516,6 +669,7 @@ export class RoomClient {
     await this.presenceChannel?.track({
       userId: this.userId,
       displayName: this.displayName,
+      avatarUrl: this.avatarUrl,
       micOn: this.micOn,
       screenOn: this.screenOn,
     } satisfies PresenceData);
@@ -530,8 +684,10 @@ export class RoomClient {
       peers.push({
         userId,
         displayName: pres?.displayName ?? peer.displayName,
+        avatarUrl: pres?.avatarUrl ?? peer.avatarUrl,
         micOn: pres?.micOn ?? true,
         screenOn: pres?.screenOn ?? false,
+        speaking: peer.speaking,
         stream: peer.stream,
         hasVideo,
         connected: peer.pc.connectionState === "connected",
@@ -541,8 +697,10 @@ export class RoomClient {
       self: {
         userId: this.userId,
         displayName: this.displayName,
+        avatarUrl: this.avatarUrl,
         micOn: this.micOn,
         screenOn: this.screenOn,
+        speaking: this.selfSpeaking,
         screenStream: this.localScreen,
       },
       peers,

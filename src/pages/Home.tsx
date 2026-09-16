@@ -15,7 +15,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { initials } from "@/lib/utils";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar";
 
 type MyRoom = {
   code: string;
@@ -26,7 +30,7 @@ type MyRoom = {
 
 export default function Home() {
   const { t } = useTranslation();
-  const { user, loading, displayName, signOut } = useAuth();
+  const { user, loading, displayName, avatarUrl, signOut } = useAuth();
   const navigate = useNavigate();
 
   const [roomName, setRoomName] = useState("");
@@ -111,14 +115,20 @@ export default function Home() {
         </button>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 rounded-full border border-border bg-card/60 py-1.5 pl-1.5 pr-4">
+          <button
+            type="button"
+            onClick={() => navigate("/profile")}
+            title={t("common.profile")}
+            className="flex items-center gap-2 rounded-full border border-border bg-card/60 py-1.5 pl-1.5 pr-4 transition-colors hover:border-primary/40"
+          >
             <Avatar className="h-7 w-7">
+              <AvatarImage src={avatarUrl ?? undefined} alt={displayName} />
               <AvatarFallback className="bg-gradient-to-br from-accent to-primary font-display text-xs font-bold text-primary-foreground">
                 {initials(displayName)}
               </AvatarFallback>
             </Avatar>
             <span className="text-sm font-medium">{displayName}</span>
-          </div>
+          </button>
           <Button variant="ghost" size="icon" onClick={handleSignOut} aria-label={t("home.signOut")}>
             <LogOut />
           </Button>
