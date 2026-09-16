@@ -3360,13 +3360,153 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      messages: {
+        Row: {
+          content: string
+          created_at: string
+          display_name: string
+          id: string
+          room_id: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          display_name?: string
+          id?: string
+          room_id: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          display_name?: string
+          id?: string
+          room_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_room_id_fkey"
+            columns: ["room_id"]
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      room_members: {
+        Row: {
+          id: string
+          joined_at: string
+          room_id: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          joined_at?: string
+          room_id: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          joined_at?: string
+          room_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_members_room_id_fkey"
+            columns: ["room_id"]
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rooms: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by: string
+          id?: string
+          name?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      signal_messages: {
+        Row: {
+          created_at: string
+          from_user: string
+          id: string
+          payload: Json
+          room_id: string
+          to_user: string | null
+        }
+        Insert: {
+          created_at?: string
+          from_user: string
+          id?: string
+          payload: Json
+          room_id: string
+          to_user?: string | null
+        }
+        Update: {
+          created_at?: string
+          from_user?: string
+          id?: string
+          payload?: Json
+          room_id?: string
+          to_user?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signal_messages_room_id_fkey"
+            columns: ["room_id"]
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      generate_room_code: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      get_room_by_code: {
+        Args: { code_input: string }
+        Returns: {
+          code: string
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+        }
+      }
+      is_room_member: {
+        Args: { room_id: string; user_id: string }
+        Returns: boolean
+      }
+      room_exists: {
+        Args: { room_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never

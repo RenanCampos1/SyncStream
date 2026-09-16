@@ -1,7 +1,13 @@
 {
   "version": 1,
-  "fallbackLng": "en",
+  "fallbackLng": "pt-BR",
   "languages": [
+    {
+      "code": "pt-BR",
+      "label": "Português",
+      "detect": ["pt", "pt-BR", "pt-PT"],
+      "dir": "ltr"
+    },
     {
       "code": "en",
       "label": "English",

@@ -1,0 +1,18 @@
+create or replace function public.generate_room_code() returns text
+language plpgsql
+as $$
+declare
+  chars text := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  new_code text;
+  i int;
+begin
+  loop
+    new_code := '';
+    for i in 1..6 loop
+      new_code := new_code || substr(chars, 1 + floor(random() * length(chars))::int, 1);
+    end loop;
+    exit when not exists (select 1 from public.rooms where rooms.code = new_code);
+  end loop;
+  return new_code;
+end;
+$$;

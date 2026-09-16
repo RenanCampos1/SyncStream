@@ -1,11 +1,29 @@
-import Index from "./pages/Index";
+import Landing from "./pages/Landing";
+import Auth from "./pages/Auth";
+import Home from "./pages/Home";
+import Room from "./pages/Room";
 import NotFound from "./pages/NotFound";
 
 export const routers = [
   {
     path: "/",
+    name: "landing",
+    element: <Landing />,
+  },
+  {
+    path: "/auth",
+    name: "auth",
+    element: <Auth />,
+  },
+  {
+    path: "/home",
     name: "home",
-    element: <Index />,
+    element: <Home />,
+  },
+  {
+    path: "/room/:code",
+    name: "room",
+    element: <Room />,
   },
   /* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */
   {

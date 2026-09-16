@@ -19,6 +19,11 @@ export default {
 			}
 		},
 		extend: {
+			fontFamily: {
+				sans: ['Sora', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+				display: ['Unbounded', 'ui-sans-serif', 'sans-serif'],
+				mono: ['"Space Mono"', 'ui-monospace', 'monospace'],
+			},
 			colors: {
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',

@@ -49,7 +49,9 @@ void i18n
     partialBundledLanguages: true,
     backend: { loadPath: `${baseUrl}locales/{{lng}}.json` },
     detection: {
-      order: ["cookie", "navigator", "htmlTag"],
+      // Portuguese-first product: default to the fallback (pt-BR) unless the
+      // user explicitly picked a language (cookie set by the switcher).
+      order: ["cookie"],
       lookupCookie: "i18next",
       caches: ["cookie"],
       // Normalize an unsupported language to fallbackLng so no invalid language

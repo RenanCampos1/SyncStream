@@ -1,0 +1,72 @@
+
+-- Security-definer helpers to avoid recursive RLS policies.
+create or replace function public.is_room_member(room_id uuid, user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (select 1 from public.room_members m where m.room_id = $1 and m.user_id = $2);
+$$;
+
+grant execute on function public.is_room_member(uuid, uuid) to authenticated;
+
+create or replace function public.room_exists(room_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (select 1 from public.rooms r where r.id = $1);
+$$;
+
+grant execute on function public.room_exists(uuid) to authenticated;
+
+-- Rewrite recursive policies using the helpers.
+drop policy if exists "room_select_member" on public.rooms;
+create policy "room_select_member" on public.rooms
+  for select to authenticated using (
+    created_by = auth.uid()
+    or public.is_room_member(rooms.id, auth.uid())
+  );
+
+drop policy if exists "members_select_member" on public.room_members;
+create policy "members_select_member" on public.room_members
+  for select to authenticated using (
+    public.is_room_member(room_members.room_id, auth.uid())
+  );
+
+drop policy if exists "members_insert_join" on public.room_members;
+create policy "members_insert_join" on public.room_members
+  for insert to authenticated with check (
+    auth.uid() = user_id
+    and public.room_exists(room_id)
+  );
+
+drop policy if exists "messages_select_member" on public.messages;
+create policy "messages_select_member" on public.messages
+  for select to authenticated using (
+    public.is_room_member(messages.room_id, auth.uid())
+  );
+
+drop policy if exists "messages_insert_member" on public.messages;
+create policy "messages_insert_member" on public.messages
+  for insert to authenticated with check (
+    auth.uid() = user_id
+    and public.is_room_member(messages.room_id, auth.uid())
+  );
+
+drop policy if exists "signals_select_member" on public.signal_messages;
+create policy "signals_select_member" on public.signal_messages
+  for select to authenticated using (
+    public.is_room_member(signal_messages.room_id, auth.uid())
+  );
+
+drop policy if exists "signals_insert_member" on public.signal_messages;
+create policy "signals_insert_member" on public.signal_messages
+  for insert to authenticated with check (
+    auth.uid() = from_user
+    and public.is_room_member(signal_messages.room_id, auth.uid())
+  );

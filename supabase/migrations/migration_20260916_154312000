@@ -1,0 +1,140 @@
+
+-- ============ rooms ============
+create table public.rooms (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null default 'Sala',
+  created_by uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create or replace function public.generate_room_code() returns text
+language plpgsql
+as $$
+declare
+  chars text := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  code text;
+  i int;
+begin
+  loop
+    code := '';
+    for i in 1..6 loop
+      code := code || substr(chars, 1 + floor(random() * length(chars))::int, 1);
+    end loop;
+    exit when not exists (select 1 from public.rooms where code = code);
+  end loop;
+  return code;
+end;
+$$;
+
+create or replace function public.set_room_code() returns trigger
+language plpgsql
+as $$
+begin
+  if new.code is null or new.code = '' then
+    new.code := public.generate_room_code();
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_set_room_code before insert on public.rooms
+for each row execute function public.set_room_code();
+
+-- ============ room_members ============
+create table public.room_members (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.rooms(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  joined_at timestamptz not null default now(),
+  unique (room_id, user_id)
+);
+create index room_members_room_idx on public.room_members(room_id);
+create index room_members_user_idx on public.room_members(user_id);
+
+-- ============ messages (chat de texto) ============
+create table public.messages (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.rooms(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  content text not null,
+  created_at timestamptz not null default now()
+);
+create index messages_room_idx on public.messages(room_id, created_at);
+
+-- ============ signal_messages (sinalizacao WebRTC) ============
+create table public.signal_messages (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.rooms(id) on delete cascade,
+  from_user uuid not null references auth.users(id) on delete cascade,
+  to_user uuid null references auth.users(id) on delete cascade,
+  payload jsonb not null,
+  created_at timestamptz not null default now()
+);
+create index signal_messages_room_idx on public.signal_messages(room_id, created_at);
+
+-- ============ RLS ============
+alter table public.rooms enable row level security;
+alter table public.room_members enable row level security;
+alter table public.messages enable row level security;
+alter table public.signal_messages enable row level security;
+
+-- rooms
+create policy "room_insert_creator" on public.rooms
+  for insert to authenticated with check (auth.uid() = created_by);
+create policy "room_select_member" on public.rooms
+  for select to authenticated using (
+    created_by = auth.uid()
+    or exists (select 1 from public.room_members m where m.room_id = rooms.id and m.user_id = auth.uid())
+  );
+
+-- room_members (entrar na sala = insert proprio; sair = delete proprio)
+create policy "members_insert_join" on public.room_members
+  for insert to authenticated with check (
+    auth.uid() = user_id
+    and exists (select 1 from public.rooms r where r.id = room_id)
+  );
+create policy "members_select_member" on public.room_members
+  for select to authenticated using (
+    exists (select 1 from public.room_members m where m.room_id = room_members.room_id and m.user_id = auth.uid())
+  );
+create policy "members_delete_own" on public.room_members
+  for delete to authenticated using (auth.uid() = user_id);
+
+-- messages
+create policy "messages_select_member" on public.messages
+  for select to authenticated using (
+    exists (select 1 from public.room_members m where m.room_id = messages.room_id and m.user_id = auth.uid())
+  );
+create policy "messages_insert_member" on public.messages
+  for insert to authenticated with check (
+    auth.uid() = user_id
+    and exists (select 1 from public.room_members m where m.room_id = messages.room_id and m.user_id = auth.uid())
+  );
+
+-- signal_messages
+create policy "signals_select_member" on public.signal_messages
+  for select to authenticated using (
+    exists (select 1 from public.room_members m where m.room_id = signal_messages.room_id and m.user_id = auth.uid())
+  );
+create policy "signals_insert_member" on public.signal_messages
+  for insert to authenticated with check (
+    auth.uid() = from_user
+    and exists (select 1 from public.room_members m where m.room_id = signal_messages.room_id and m.user_id = auth.uid())
+  );
+
+-- lookup por codigo de convite (o codigo e a chave de acesso/convite)
+create or replace function public.get_room_by_code(code_input text)
+returns public.rooms
+language sql
+security definer
+set search_path = public
+as $$
+  select * from public.rooms where code = upper(trim(code_input));
+$$;
+
+grant execute on function public.get_room_by_code(text) to authenticated;
+
+-- ============ Realtime ============
+alter publication supabase_realtime add table public.messages;
+alter publication supabase_realtime add table public.signal_messages;
