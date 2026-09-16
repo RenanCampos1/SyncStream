@@ -1,7 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-
-export const MIC_DEVICE_KEY = "telaviva.micDeviceId";
+import { getMicDeviceId, getMicGain } from "@/lib/audio-settings";
 
 export type SignalPayload =
   | { type: "offer"; sdp: RTCSessionDescriptionInit }
@@ -106,6 +105,8 @@ export class RoomClient {
   private avatarUrl: string | null;
 
   private localMic: MediaStream | null = null;
+  private rawMic: MediaStream | null = null;
+  private micCtx: AudioContext | null = null;
   private localScreen: MediaStream | null = null;
   private micOn = true;
   private screenOn = false;
@@ -291,6 +292,12 @@ export class RoomClient {
     this.presence.clear();
     this.localMic?.getTracks().forEach((t) => t.stop());
     this.localMic = null;
+    this.rawMic?.getTracks().forEach((t) => t.stop());
+    this.rawMic = null;
+    if (this.micCtx) {
+      void this.micCtx.close().catch(() => {});
+      this.micCtx = null;
+    }
     this.localScreen?.getTracks().forEach((t) => t.stop());
     this.localScreen = null;
     try {
@@ -313,23 +320,48 @@ export class RoomClient {
       echoCancellation: true,
       noiseSuppression: true,
     };
-    const savedDevice = localStorage.getItem(MIC_DEVICE_KEY);
+    const savedDevice = getMicDeviceId();
+    let raw: MediaStream | null = null;
     if (savedDevice) {
       try {
-        return await navigator.mediaDevices.getUserMedia({
+        raw = await navigator.mediaDevices.getUserMedia({
           audio: { ...base, deviceId: { exact: savedDevice } },
         });
       } catch {
         /* device gone — fall back to default */
       }
     }
-    try {
-      return await navigator.mediaDevices.getUserMedia({ audio: base });
-    } catch {
-      this.micOn = false;
-      this.micDenied = true;
-      return null;
+    if (!raw) {
+      try {
+        raw = await navigator.mediaDevices.getUserMedia({ audio: base });
+      } catch {
+        this.micOn = false;
+        this.micDenied = true;
+        return null;
+      }
     }
+
+    // Microphone sensitivity: only route through Web Audio when the user
+    // changed the default (100%), so the standard path is never altered.
+    const gain = getMicGain();
+    if (gain !== 1) {
+      try {
+        const ctx = new AudioContext();
+        void ctx.resume().catch(() => {});
+        const source = ctx.createMediaStreamSource(raw);
+        const gainNode = ctx.createGain();
+        gainNode.gain.value = gain;
+        const dest = ctx.createMediaStreamDestination();
+        source.connect(gainNode);
+        gainNode.connect(dest);
+        this.micCtx = ctx;
+        this.rawMic = raw;
+        return dest.stream;
+      } catch (err) {
+        console.warn("TelaViva: ganho do microfone indisponível", err);
+      }
+    }
+    return raw;
   }
 
   private attachAnalyser(stream: MediaStream | null, key: string) {

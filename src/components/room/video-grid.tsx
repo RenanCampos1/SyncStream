@@ -2,6 +2,11 @@ import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, MicOff, MonitorUp } from "lucide-react";
 import { cn, initials } from "@/lib/utils";
+import {
+  applyOutputDevice,
+  getOutputDeviceId,
+  getOutputVolume,
+} from "@/lib/audio-settings";
 import type { RemotePeer, SelfState } from "@/lib/webrtc";
 
 function StreamVideo({
@@ -34,11 +39,13 @@ function StreamVideo({
 function RemoteAudio({ stream }: { stream: MediaStream | null }) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => {
-    if (ref.current && ref.current.srcObject !== stream) {
-      ref.current.srcObject = stream;
-    }
-    if (ref.current && stream) {
-      void ref.current.play().catch(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (el.srcObject !== stream) el.srcObject = stream;
+    el.volume = getOutputVolume();
+    void applyOutputDevice(el, getOutputDeviceId());
+    if (stream) {
+      void el.play().catch(() => {
         /* autoplay blocked until user interaction — retry handled by React */
       });
     }

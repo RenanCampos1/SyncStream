@@ -6,23 +6,38 @@ import {
   Camera,
   Loader2,
   Mic,
+  SlidersHorizontal,
+  Speaker,
   Square,
   UserRound,
+  Volume2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { MIC_DEVICE_KEY } from "@/lib/webrtc";
+import {
+  DEFAULT_DEVICE,
+  applyOutputDevice,
+  getMicDeviceId,
+  getMicGain,
+  getOutputDeviceId,
+  getOutputVolume,
+  setMicDeviceId,
+  setMicGain,
+  setOutputDeviceId,
+  setOutputVolume,
+  supportsOutputSelection,
+} from "@/lib/audio-settings";
 import { useAuth } from "@/hooks/use-auth";
 import { cn, initials } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 
 type AudioDevice = { deviceId: string; label: string };
@@ -89,12 +104,23 @@ export default function Profile() {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [devices, setDevices] = useState<AudioDevice[]>([]);
-  const [selectedDevice, setSelectedDevice] = useState<string>(
-    () => localStorage.getItem(MIC_DEVICE_KEY) ?? "default",
+  const [inputs, setInputs] = useState<AudioDevice[]>([]);
+  const [outputs, setOutputs] = useState<AudioDevice[]>([]);
+  const [micDevice, setMicDevice] = useState<string>(
+    () => getMicDeviceId() ?? DEFAULT_DEVICE,
+  );
+  const [outputDevice, setOutputDevice] = useState<string>(
+    () => getOutputDeviceId() ?? DEFAULT_DEVICE,
+  );
+  const [micGain, setMicGainState] = useState<number>(() =>
+    Math.round(getMicGain() * 100),
+  );
+  const [outputVolume, setOutputVolumeState] = useState<number>(() =>
+    Math.round(getOutputVolume() * 100),
   );
   const [testStream, setTestStream] = useState<MediaStream | null>(null);
   const [testing, setTesting] = useState(false);
+  const [testingOutput, setTestingOutput] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate("/auth", { replace: true });
@@ -104,7 +130,7 @@ export default function Profile() {
     if (user) setName(displayName);
   }, [user, displayName]);
 
-  // Enumerate input devices (asks mic permission once to reveal labels).
+  // Enumerate input and output devices (asks mic permission once for labels).
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -117,13 +143,22 @@ export default function Profile() {
       try {
         const list = await navigator.mediaDevices.enumerateDevices();
         if (cancelled) return;
-        const inputs = list
-          .filter((d) => d.kind === "audioinput" && d.deviceId)
-          .map((d) => ({
-            deviceId: d.deviceId,
-            label: d.label || `Microfone ${d.deviceId.slice(0, 4)}`,
-          }));
-        setDevices(inputs);
+        setInputs(
+          list
+            .filter((d) => d.kind === "audioinput" && d.deviceId)
+            .map((d) => ({
+              deviceId: d.deviceId,
+              label: d.label || `Microfone ${d.deviceId.slice(0, 4)}`,
+            })),
+        );
+        setOutputs(
+          list
+            .filter((d) => d.kind === "audiooutput" && d.deviceId)
+            .map((d) => ({
+              deviceId: d.deviceId,
+              label: d.label || `Saída ${d.deviceId.slice(0, 4)}`,
+            })),
+        );
       } catch {
         /* ignore */
       }
@@ -196,12 +231,12 @@ export default function Profile() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio:
-          selectedDevice === "default"
+          micDevice === DEFAULT_DEVICE
             ? { echoCancellation: true, noiseSuppression: true }
             : {
                 echoCancellation: true,
                 noiseSuppression: true,
-                deviceId: { exact: selectedDevice },
+                deviceId: { exact: micDevice },
               },
       });
       setTestStream(stream);
@@ -218,15 +253,58 @@ export default function Profile() {
     setTesting(false);
   };
 
-  const saveMic = async () => {
-    if (selectedDevice === "default") {
-      localStorage.removeItem(MIC_DEVICE_KEY);
-    } else {
-      localStorage.setItem(MIC_DEVICE_KEY, selectedDevice);
+  /** Plays a short tone through the selected output device. */
+  const testOutput = async () => {
+    if (testingOutput) return;
+    setTestingOutput(true);
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const dest = ctx.createMediaStreamDestination();
+      osc.frequency.value = 440;
+      gain.gain.value = 0.18;
+      osc.connect(gain);
+      gain.connect(dest);
+      const el = new Audio();
+      el.srcObject = dest.stream;
+      el.volume = Math.max(0, outputVolume / 100);
+      if (outputDevice !== DEFAULT_DEVICE) {
+        await applyOutputDevice(el, outputDevice);
+      }
+      osc.start();
+      await el.play().catch(() => {});
+      window.setTimeout(() => {
+        osc.stop();
+        el.srcObject = null;
+        void ctx.close().catch(() => {});
+        setTestingOutput(false);
+      }, 1400);
+    } catch {
+      setTestingOutput(false);
+      toast.error(t("auth.error.generic"));
     }
-    stopTest();
-    toast.success(t("profile.micSaved"));
   };
+
+  const saveAudio = () => {
+    setMicDeviceId(micDevice);
+    setOutputDeviceId(outputDevice);
+    setMicGain(micGain / 100);
+    setOutputVolume(outputVolume / 100);
+    stopTest();
+    toast.success(t("profile.audioSaved"));
+  };
+
+  const micLabel =
+    micDevice === DEFAULT_DEVICE
+      ? t("profile.defaultDevice")
+      : (inputs.find((d) => d.deviceId === micDevice)?.label ??
+        t("profile.defaultDevice"));
+  const outputLabel =
+    outputDevice === DEFAULT_DEVICE
+      ? t("profile.defaultDevice")
+      : (outputs.find((d) => d.deviceId === outputDevice)?.label ??
+        t("profile.defaultDevice"));
 
   const handleSignOut = async () => {
     await signOut();
@@ -323,53 +401,134 @@ export default function Profile() {
           </div>
         </section>
 
-        {/* Microphone */}
+        {/* Audio: input, gain, output, volume */}
         <section className="animate-fade-up rounded-3xl border border-border bg-card/50 p-7">
-          <h2 className="mb-4 flex items-center gap-2 font-semibold">
-            <Mic className="h-4 w-4 text-primary" />
-            {t("profile.mic")}
+          <h2 className="mb-1 flex items-center gap-2 font-semibold">
+            <SlidersHorizontal className="h-4 w-4 text-primary" />
+            {t("profile.audio")}
           </h2>
-          <p className="mb-4 text-sm text-muted-foreground">{t("profile.micHint")}</p>
+          <p className="mb-5 text-sm text-muted-foreground">{t("profile.micHint")}</p>
 
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor="mic-device">{t("profile.micSelect")}</Label>
-              <Select value={selectedDevice} onValueChange={setSelectedDevice}>
-                <SelectTrigger id="mic-device" className="h-11 w-full rounded-xl bg-card/70">
-                  <SelectValue />
+          <div className="space-y-6">
+            {/* Input */}
+            <div className="space-y-3">
+              <Label className="flex items-center gap-2">
+                <Mic className="h-3.5 w-3.5 text-primary" />
+                {t("profile.input")}
+              </Label>
+              <Select value={micDevice} onValueChange={setMicDevice}>
+                <SelectTrigger className="h-11 w-full rounded-xl bg-card/70">
+                  <span className="truncate">{micLabel}</span>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="default">{t("profile.defaultDevice")}</SelectItem>
-                  {devices.map((d) => (
+                  <SelectItem value={DEFAULT_DEVICE}>
+                    {t("profile.defaultDevice")}
+                  </SelectItem>
+                  {inputs.map((d) => (
                     <SelectItem key={d.deviceId} value={d.deviceId}>
                       {d.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">{t("profile.micGain")}</span>
+                  <span className="font-mono text-muted-foreground">{micGain}%</span>
+                </div>
+                <Slider
+                  value={[micGain]}
+                  min={10}
+                  max={200}
+                  step={5}
+                  onValueChange={([v]) => setMicGainState(v)}
+                />
+              </div>
+
+              {testing && <MicMeter stream={testStream} active={testing} />}
+
+              <div className="flex flex-wrap gap-2">
+                {testing ? (
+                  <Button variant="outline" size="sm" onClick={stopTest}>
+                    <Square className="h-4 w-4" />
+                    {t("profile.micStop")}
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={startTest}>
+                    <Mic className="h-4 w-4" />
+                    {t("profile.micTest")}
+                  </Button>
+                )}
+                {testing && (
+                  <span className="self-center text-sm text-muted-foreground">
+                    {t("profile.micTesting")}
+                  </span>
+                )}
+              </div>
             </div>
 
-            {testing && <MicMeter stream={testStream} active={testing} />}
+            <div className="h-px bg-border" />
 
-            <div className="flex flex-wrap gap-2">
-              {testing ? (
-                <Button variant="outline" onClick={stopTest}>
-                  <Square className="h-4 w-4" />
-                  {t("profile.micStop")}
-                </Button>
-              ) : (
-                <Button variant="outline" onClick={startTest}>
-                  <Mic className="h-4 w-4" />
-                  {t("profile.micTest")}
-                </Button>
+            {/* Output */}
+            <div className="space-y-3">
+              <Label className="flex items-center gap-2">
+                <Speaker className="h-3.5 w-3.5 text-primary" />
+                {t("profile.output")}
+              </Label>
+              <Select value={outputDevice} onValueChange={setOutputDevice}>
+                <SelectTrigger className="h-11 w-full rounded-xl bg-card/70">
+                  <span className="truncate">{outputLabel}</span>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={DEFAULT_DEVICE}>
+                    {t("profile.defaultDevice")}
+                  </SelectItem>
+                  {outputs.map((d) => (
+                    <SelectItem key={d.deviceId} value={d.deviceId}>
+                      {d.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!supportsOutputSelection() && (
+                <p className="text-xs text-muted-foreground">
+                  {t("profile.outputUnsupported")}
+                </p>
               )}
-              <Button onClick={saveMic}>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    {t("profile.outputVolume")}
+                  </span>
+                  <span className="font-mono text-muted-foreground">{outputVolume}%</span>
+                </div>
+                <Slider
+                  value={[outputVolume]}
+                  min={0}
+                  max={100}
+                  step={5}
+                  onValueChange={([v]) => setOutputVolumeState(v)}
+                />
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={testOutput}
+                disabled={testingOutput}
+              >
+                <Volume2 className="h-4 w-4" />
+                {testingOutput ? t("profile.micTesting") : t("profile.testOutput")}
+              </Button>
+            </div>
+
+            <div className="flex justify-end border-t border-border pt-5">
+              <Button onClick={saveAudio} className="h-11 rounded-xl px-6">
                 {t("common.save")}
               </Button>
             </div>
-            {testing && (
-              <p className="text-sm text-muted-foreground">{t("profile.micTesting")}</p>
-            )}
           </div>
         </section>
       </main>
