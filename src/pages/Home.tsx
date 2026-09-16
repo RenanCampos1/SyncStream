@@ -6,7 +6,6 @@ import {
   LogOut,
   MonitorUp,
   Plus,
-  Radio,
   Ticket,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -15,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { initials } from "@/lib/utils";
+import { BrandLogo } from "@/components/brand-logo";
 import {
   Avatar,
   AvatarFallback,
@@ -106,9 +106,7 @@ export default function Home() {
           onClick={() => navigate("/")}
           className="flex items-center gap-2.5"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-primary shadow-[var(--glow-accent)]">
-            <Radio className="h-5 w-5 text-primary-foreground" />
-          </span>
+          <BrandLogo size={36} className="rounded-xl" />
           <span className="font-display text-lg font-bold tracking-tight">
             {t("common.appName")}
           </span>

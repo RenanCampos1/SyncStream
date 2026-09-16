@@ -1,37 +1,48 @@
 import { useTranslation } from "react-i18next";
-import { Mic, MicOff, MonitorUp, Users } from "lucide-react";
+import {
+  Flame,
+  Ghost,
+  Mic,
+  MicOff,
+  MonitorUp,
+  Sparkles,
+  Users,
+} from "lucide-react";
 import { cn, initials } from "@/lib/utils";
 import type { RemotePeer, SelfState } from "@/lib/webrtc";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Equalizer } from "./video-grid";
+import type { CandleColor } from "./candle-overlay";
 
-export function ParticipantList({
-  self,
-  peers,
+function ParticipantRow({
+  userId,
+  name,
+  avatarUrl,
+  micOn,
+  screenOn,
+  speaking,
+  connected,
+  isSelf,
+  onCandle,
 }: {
-  self: SelfState;
-  peers: RemotePeer[];
+  userId: string;
+  name: string;
+  avatarUrl?: string | null;
+  micOn: boolean;
+  screenOn: boolean;
+  speaking?: boolean;
+  connected?: boolean;
+  isSelf?: boolean;
+  onCandle?: (userId: string, color: CandleColor) => void;
 }) {
   const { t } = useTranslation();
-  const total = peers.length + 1;
-
-  const Row = ({
-    name,
-    avatarUrl,
-    micOn,
-    screenOn,
-    speaking,
-    connected,
-    isSelf,
-  }: {
-    name: string;
-    avatarUrl?: string | null;
-    micOn: boolean;
-    screenOn: boolean;
-    speaking?: boolean;
-    connected?: boolean;
-    isSelf?: boolean;
-  }) => (
+  return (
     <div
       className={cn(
         "flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/60",
@@ -78,8 +89,51 @@ export function ParticipantList({
       ) : (
         <MicOff className="h-4 w-4 text-destructive" />
       )}
+      {!isSelf && onCandle && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-amber-400"
+              aria-label={t("room.candleFor", { name })}
+              title={t("room.candleFor", { name })}
+            >
+              <Flame className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => onCandle(userId, "white")}
+              className="cursor-pointer"
+            >
+              <Sparkles className="h-4 w-4 text-amber-400" />
+              {t("room.candleWhite")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => onCandle(userId, "black")}
+              className="cursor-pointer"
+            >
+              <Ghost className="h-4 w-4 text-fuchsia-400" />
+              {t("room.candleBlack")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
+}
+
+export function ParticipantList({
+  self,
+  peers,
+  onCandle,
+}: {
+  self: SelfState;
+  peers: RemotePeer[];
+  onCandle?: (userId: string, color: CandleColor) => void;
+}) {
+  const { t } = useTranslation();
+  const total = peers.length + 1;
 
   return (
     <div className="flex h-full flex-col">
@@ -92,17 +146,20 @@ export function ParticipantList({
       </div>
       <div className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
         {peers.map((p) => (
-          <Row
+          <ParticipantRow
             key={p.userId}
+            userId={p.userId}
             name={p.displayName}
             avatarUrl={p.avatarUrl}
             micOn={p.micOn}
             screenOn={p.screenOn}
             speaking={p.speaking}
             connected={p.connected}
+            onCandle={onCandle}
           />
         ))}
-        <Row
+        <ParticipantRow
+          userId={self.userId}
           name={self.displayName}
           avatarUrl={self.avatarUrl}
           micOn={self.micOn}

@@ -1,5 +1,5 @@
 {
-  "common.appName": "TelaViva",
+  "common.appName": "LAButuca",
   "common.live": "AO VIVO",
   "common.online": "online",
   "common.copy": "Copiar",
@@ -114,6 +114,14 @@
   "room.notFound": "Sala não encontrada.",
   "room.screenSharedBy": "Tela de {{name}}",
   "room.self": "você",
+  "room.candle": "Velas",
+  "room.candleWhite": "Vela branca · boa sorte",
+  "room.candleBlack": "Vela preta · azar",
+  "room.candleFor": "Acender vela para {{name}}",
+  "room.candleSentWhite": "Vela branca acesa para {{name}} — boa sorte!",
+  "room.candleSentBlack": "Vela preta acesa para {{name}} — azar...",
+  "room.candleReceivedWhite": "{{name}} acendeu uma vela branca para você. Boa sorte!",
+  "room.candleReceivedBlack": "{{name}} acendeu uma vela preta para você. Azar...",
   "room.micDenied": "Microfone indisponível — verifique a permissão do navegador.",
   "room.shareError": "Não foi possível iniciar o compartilhamento de tela.",
 

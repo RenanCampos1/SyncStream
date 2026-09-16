@@ -1,5 +1,5 @@
 {
-  "common.appName": "TelaViva",
+  "common.appName": "LAButuca",
   "common.live": "LIVE",
   "common.online": "online",
   "common.copy": "Copy",
@@ -114,6 +114,14 @@
   "room.notFound": "Room not found.",
   "room.screenSharedBy": "{{name}}'s screen",
   "room.self": "you",
+  "room.candle": "Candles",
+  "room.candleWhite": "White candle · good luck",
+  "room.candleBlack": "Black candle · bad luck",
+  "room.candleFor": "Light a candle for {{name}}",
+  "room.candleSentWhite": "White candle lit for {{name}} — good luck!",
+  "room.candleSentBlack": "Black candle lit for {{name}} — bad luck...",
+  "room.candleReceivedWhite": "{{name}} lit a white candle for you. Good luck!",
+  "room.candleReceivedBlack": "{{name}} lit a black candle for you. Bad luck...",
   "room.micDenied": "Microphone unavailable — check your browser permission.",
   "room.shareError": "Could not start screen sharing.",
 

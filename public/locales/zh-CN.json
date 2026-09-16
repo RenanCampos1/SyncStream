@@ -1,5 +1,5 @@
 {
-  "common.appName": "TelaViva",
+  "common.appName": "LAButuca",
   "common.live": "直播中",
   "common.online": "在线",
   "common.copy": "复制",
@@ -114,6 +114,14 @@
   "room.notFound": "找不到房间。",
   "room.screenSharedBy": "{{name}} 的屏幕",
   "room.self": "你",
+  "room.candle": "蜡烛",
+  "room.candleWhite": "白蜡烛 · 好运",
+  "room.candleBlack": "黑蜡烛 · 厄运",
+  "room.candleFor": "为 {{name}} 点亮蜡烛",
+  "room.candleSentWhite": "已为 {{name}} 点亮白蜡烛 — 祝你好运！",
+  "room.candleSentBlack": "已为 {{name}} 点亮黑蜡烛 — 厄运...",
+  "room.candleReceivedWhite": "{{name}} 为你点亮了白蜡烛。好运！",
+  "room.candleReceivedBlack": "{{name}} 为你点亮了黑蜡烛。厄运...",
   "room.micDenied": "麦克风不可用 — 请检查浏览器权限。",
   "room.shareError": "无法开始屏幕共享。",
 

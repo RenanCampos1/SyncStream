@@ -37,6 +37,10 @@ import { VideoGrid } from "@/components/room/video-grid";
 import { ParticipantList } from "@/components/room/participant-list";
 import { ChatPanel, type ChatMessage } from "@/components/room/chat-panel";
 import { ControlBar } from "@/components/room/control-bar";
+import {
+  CandleOverlay,
+  type CandleColor,
+} from "@/components/room/candle-overlay";
 
 type RoomRow = {
   id: string;
@@ -84,6 +88,20 @@ export default function Room() {
 
   const roomRef = useRef<string | null>(null);
   const userRef = useRef<string | null>(null);
+  const eventsChannelRef = useRef<RealtimeChannel | null>(null);
+
+  // Stable identity values: only the user id is an effect dependency, so auth
+  // token refreshes (which replace the user object) never tear the room down.
+  const userId = user?.id ?? null;
+  const nameRef = useRef(displayName);
+  nameRef.current = displayName;
+  const avatarRef = useRef(avatarUrl);
+  avatarRef.current = avatarUrl;
+
+  const [candle, setCandle] = useState<{
+    sender: string;
+    color: CandleColor;
+  } | null>(null);
 
   // Best-effort cleanup when the tab is closed, so the room does not stay
   // registered (and its data does not pile up) after everyone leaves.
@@ -115,10 +133,13 @@ export default function Room() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user) {
+    if (!userId) {
       navigate("/auth", { replace: true });
       return;
     }
+    console.log("TelaViva: entrou na sala");
+    const myName = nameRef.current;
+    const myAvatar = avatarRef.current;
     const norm = (code ?? "").trim().toUpperCase();
     if (!norm) {
       navigate("/home", { replace: true });
@@ -132,6 +153,8 @@ export default function Room() {
       clientRef.current = null;
       void chatChannelRef.current?.unsubscribe();
       chatChannelRef.current = null;
+      void eventsChannelRef.current?.unsubscribe();
+      eventsChannelRef.current = null;
     };
 
     void (async () => {
@@ -145,19 +168,19 @@ export default function Room() {
       }
       setRoom(roomRow);
       roomRef.current = roomRow.id;
-      userRef.current = user.id;
+      userRef.current = userId;
 
       // Auto-join: add this user to the room membership (idempotent).
       const { data: member } = await supabase
         .from("room_members")
         .select("id")
         .eq("room_id", roomRow.id)
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .maybeSingle();
       if (!member) {
         await supabase
           .from("room_members")
-          .insert({ room_id: roomRow.id, user_id: user.id });
+          .insert({ room_id: roomRow.id, user_id: userId });
       }
 
       // Chat history + live inserts.
@@ -189,13 +212,45 @@ export default function Room() {
         .subscribe();
       chatChannelRef.current = chatChannel;
 
+      // Candles: realtime events via postgres_changes (the broadcast channel
+      // is not reliable on this backend and was destabilising the room).
+      const candlesChannel = supabase
+        .channel(`candles:${roomRow.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "candle_events",
+            filter: `room_id=eq.${roomRow.id}`,
+          },
+          (payload) => {
+            const row = payload.new as {
+              to_user: string;
+              from_user: string;
+              from_name: string;
+              color: CandleColor;
+            };
+            if (!row || row.to_user !== userId || row.from_user === userId) return;
+            console.log("TelaViva: vela recebida", row.color, "de", row.from_name);
+            setCandle({ sender: row.from_name || "?", color: row.color });
+            window.setTimeout(() => setCandle(null), 5500);
+          },
+        )
+        .subscribe((status) => {
+          if (status === "CHANNEL_ERROR") {
+            console.log("TelaViva: canal velas com erro");
+          }
+        });
+      eventsChannelRef.current = candlesChannel;
+
       const client = new RoomClient(
         {
           roomId: roomRow.id,
           roomCode: roomRow.code,
-          userId: user.id,
-          displayName,
-          avatarUrl,
+          userId,
+          displayName: myName,
+          avatarUrl: myAvatar,
         },
         (state) => setClientState(state),
       );
@@ -205,7 +260,7 @@ export default function Room() {
     })();
 
     return dispose;
-  }, [authLoading, user, code, navigate, displayName, avatarUrl]);
+  }, [authLoading, userId, code, navigate]);
 
   const sendMessage = async (content: string) => {
     if (!room || !user) return;
@@ -215,6 +270,30 @@ export default function Room() {
       display_name: displayName,
       content,
     });
+  };
+
+  const sendCandle = (targetUserId: string, color: CandleColor) => {
+    if (!room || !userId) return;
+    const target = clientState?.peers.find((p) => p.userId === targetUserId);
+    const name = target?.displayName ?? targetUserId.slice(0, 6);
+    console.log("TelaViva: vela enviada", color, "para", name);
+    void supabase
+      .from("candle_events")
+      .insert({
+        room_id: room.id,
+        from_user: userId,
+        to_user: targetUserId,
+        from_name: displayName,
+        color,
+      })
+      .then(({ error }) => {
+        if (error) console.log("TelaViva: erro ao acender vela", error.message);
+      });
+    toast.success(
+      color === "white"
+        ? t("room.candleSentWhite", { name })
+        : t("room.candleSentBlack", { name }),
+    );
   };
 
   const copyInvite = async () => {
@@ -376,7 +455,11 @@ export default function Room() {
             </TabsList>
             <TabsContent value="members" className="mt-0 min-h-0 flex-1">
               {self && (
-                <ParticipantList self={self} peers={clientState?.peers ?? []} />
+                <ParticipantList
+                  self={self}
+                  peers={clientState?.peers ?? []}
+                  onCandle={sendCandle}
+                />
               )}
             </TabsContent>
             <TabsContent value="chat" className="mt-0 min-h-0 flex-1">
@@ -403,7 +486,11 @@ export default function Room() {
                 <TabsTrigger value="chat">{t("room.chat")}</TabsTrigger>
               </TabsList>
               <TabsContent value="members" className="mt-0 min-h-0 flex-1">
-                <ParticipantList self={self} peers={clientState?.peers ?? []} />
+                <ParticipantList
+                  self={self}
+                  peers={clientState?.peers ?? []}
+                  onCandle={sendCandle}
+                />
               </TabsContent>
               <TabsContent value="chat" className="mt-0 min-h-0 flex-1">
                 <ChatPanel
@@ -438,6 +525,9 @@ export default function Room() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Candle animation received from a colleague */}
+      {candle && <CandleOverlay sender={candle.sender} color={candle.color} />}
     </div>
   );
 }

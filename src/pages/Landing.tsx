@@ -6,12 +6,12 @@ import {
   MessageSquare,
   Mic,
   MonitorUp,
-  Radio,
   Ticket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
+import { BrandLogo } from "@/components/brand-logo";
 
 const FEATURES = [
   { icon: Mic, title: "landing.features.voz.title", desc: "landing.features.voz.desc" },
@@ -59,9 +59,7 @@ export default function Landing() {
       {/* Nav */}
       <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <Link to="/" className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-primary shadow-[var(--glow-accent)]">
-            <Radio className="h-5 w-5 text-primary-foreground" />
-          </span>
+          <BrandLogo size={36} className="rounded-xl" />
           <span className="font-display text-lg font-bold tracking-tight">
             {t("common.appName")}
           </span>
@@ -248,9 +246,7 @@ export default function Landing() {
 
       <footer className="relative z-10 border-t border-border/60 py-10 text-center">
         <div className="flex items-center justify-center gap-2.5">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-accent to-primary">
-            <Radio className="h-4 w-4 text-primary-foreground" />
-          </span>
+          <BrandLogo size={28} className="rounded-lg" />
           <span className="font-display font-bold">{t("common.appName")}</span>
         </div>
         <p className="mt-3 text-sm text-muted-foreground">{t("landing.footer.tagline")}</p>

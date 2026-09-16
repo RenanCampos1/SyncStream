@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Radio, UserPlus } from "lucide-react";
+import { UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
+import { BrandLogo } from "@/components/brand-logo";
 
 export default function Auth() {
   const { t } = useTranslation();
@@ -67,9 +68,7 @@ export default function Auth() {
         <div className="pointer-events-none absolute inset-0 bg-grid opacity-60" />
         <div className="relative z-10 flex h-full flex-col justify-between p-12">
           <Link to="/" className="flex w-fit items-center gap-2.5">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-primary shadow-[var(--glow-accent)]">
-              <Radio className="h-5 w-5 text-primary-foreground" />
-            </span>
+            <BrandLogo size={40} className="rounded-xl" />
             <span className="font-display text-xl font-bold tracking-tight">
               {t("common.appName")}
             </span>
@@ -106,9 +105,7 @@ export default function Auth() {
       <div className="flex w-full items-center justify-center bg-gradient-soft px-6 py-12 lg:w-1/2 lg:bg-transparent">
         <div className="w-full max-w-sm">
           <Link to="/" className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-primary">
-              <Radio className="h-5 w-5 text-primary-foreground" />
-            </span>
+            <BrandLogo size={36} className="rounded-xl" />
             <span className="font-display text-lg font-bold">{t("common.appName")}</span>
           </Link>
 

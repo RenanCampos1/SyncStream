@@ -181,7 +181,11 @@ export class RoomClient {
           void this.handleSignal(msg);
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.log("TelaViva: canal sinais", status);
+        }
+      });
 
     this.presenceChannel = supabase.channel(`presence:${this.roomCode}`, {
       config: { presence: { key: this.userId } },
@@ -198,6 +202,9 @@ export class RoomClient {
         this.onPresenceLeave(key as string),
       )
       .subscribe(async (status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.log("TelaViva: canal presença", status);
+        }
         if (status !== "SUBSCRIBED" || this.destroyed) return;
         const state = this.presenceChannel?.presenceState() ?? {};
         Object.values(state).forEach((list) => {

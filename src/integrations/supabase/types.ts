@@ -3360,6 +3360,43 @@ export type Database = {
   }
   public: {
     Tables: {
+      candle_events: {
+        Row: {
+          color: string
+          created_at: string
+          from_name: string
+          from_user: string
+          id: string
+          room_id: string
+          to_user: string
+        }
+        Insert: {
+          color: string
+          created_at?: string
+          from_name?: string
+          from_user: string
+          id?: string
+          room_id: string
+          to_user: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          from_name?: string
+          from_user?: string
+          id?: string
+          room_id?: string
+          to_user?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candle_events_room_id_fkey"
+            columns: ["room_id"]
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           content: string

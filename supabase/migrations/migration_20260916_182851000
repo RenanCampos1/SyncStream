@@ -1,0 +1,43 @@
+
+create table public.candle_events (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.rooms(id) on delete cascade,
+  from_user uuid not null references auth.users(id) on delete cascade,
+  to_user uuid not null references auth.users(id) on delete cascade,
+  color text not null check (color in ('white', 'black')),
+  created_at timestamptz not null default now()
+);
+create index candle_events_room_idx on public.candle_events(room_id, created_at);
+
+alter table public.candle_events enable row level security;
+
+create policy "candles_select_member" on public.candle_events
+  for select to authenticated using (
+    public.is_room_member(candle_events.room_id, auth.uid())
+  );
+
+create policy "candles_insert_member" on public.candle_events
+  for insert to authenticated with check (
+    auth.uid() = from_user
+    and public.is_room_member(candle_events.room_id, auth.uid())
+  );
+
+-- Keep the table small: purge candles older than 15 minutes on ~10% of inserts.
+create or replace function public.cleanup_stale_candles() returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if random() < 0.1 then
+    delete from public.candle_events where created_at < now() - interval '15 minutes';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_cleanup_stale_candles
+after insert on public.candle_events
+for each row execute function public.cleanup_stale_candles();
+
+alter publication supabase_realtime add table public.candle_events;
