@@ -9,6 +9,7 @@ import {
   Ticket,
 } from "lucide-react";
 import { toast } from "sonner";
+import { trackEvent } from "@enter-pro/analytics-sdk";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,6 +84,7 @@ export default function Home() {
       room_id: data.id,
       user_id: user.id,
     });
+    trackEvent("room_created", { eventType: "conversion" });
     navigate(`/room/${data.code}`);
   };
 

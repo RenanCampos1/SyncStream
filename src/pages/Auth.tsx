@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { trackEvent } from "@enter-pro/analytics-sdk";
 import { UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,9 @@ export default function Auth() {
 
     toast.success(mode === "signup" ? t("auth.signup.title") : t("auth.login.title"), {
       description: t(mode === "signup" ? "auth.signup.subtitle" : "auth.login.subtitle"),
+    });
+    trackEvent(mode === "signup" ? "signup_completed" : "login_completed", {
+      eventType: "conversion",
     });
     navigate("/home");
   };

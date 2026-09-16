@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { trackEvent } from "@enter-pro/analytics-sdk";
 import { useTranslation } from "react-i18next";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
@@ -90,6 +91,7 @@ export default function Room() {
 
   const roomRef = useRef<string | null>(null);
   const userRef = useRef<string | null>(null);
+  const joinedTrackedRef = useRef(false);
   const eventsChannelRef = useRef<RealtimeChannel | null>(null);
   const kicksChannelRef = useRef<RealtimeChannel | null>(null);
 
@@ -162,6 +164,7 @@ export default function Room() {
     let cancelled = false;
     const dispose = () => {
       cancelled = true;
+      joinedTrackedRef.current = false;
       void clientRef.current?.leave();
       clientRef.current = null;
       void chatChannelRef.current?.unsubscribe();
@@ -307,7 +310,13 @@ export default function Room() {
       );
       clientRef.current = client;
       await client.join();
-      if (!cancelled) setReady(true);
+      if (!cancelled) {
+        if (!joinedTrackedRef.current) {
+          joinedTrackedRef.current = true;
+          trackEvent("room_joined");
+        }
+        setReady(true);
+      }
     })();
 
     return dispose;
@@ -340,6 +349,7 @@ export default function Room() {
       display_name: displayName,
       content,
     });
+    trackEvent("chat_message_sent");
   };
 
   const sendCandle = (targetUserId: string, color: CandleColor) => {
@@ -359,6 +369,7 @@ export default function Room() {
       .then(({ error }) => {
         if (error) console.log("TelaViva: erro ao acender vela", error.message);
       });
+    trackEvent("candle_sent", { properties: { color } });
     toast.success(
       color === "white"
         ? t("room.candleSentWhite", { name })
@@ -373,6 +384,7 @@ export default function Room() {
     } catch {
       /* clipboard blocked */
     }
+    trackEvent("invite_code_copied");
     setCopied(true);
     toast.success(t("room.codeCopied"));
     window.setTimeout(() => setCopied(false), 2000);
@@ -400,18 +412,28 @@ export default function Room() {
       .from("kick_events")
       .insert({ room_id: room.id, from_user: userId, to_user: kickTarget.id });
     console.log("TelaViva: kick evento?", evt.error?.message ?? "ok");
+    trackEvent("participant_kicked");
     setKicking(false);
     setKickTarget(null);
     toast.success(t("room.kickDone", { name: kickTarget.name }));
+  };
+
+  const toggleMic = () => {
+    if (!clientRef.current) return;
+    const enabled = !clientState?.self.micOn;
+    clientRef.current.toggleMic();
+    trackEvent("mic_toggled", { properties: { enabled } });
   };
 
   const toggleScreen = async () => {
     if (!clientRef.current) return;
     if (clientRef.current.getScreenOn()) {
       clientRef.current.stopScreen();
+      trackEvent("screen_share_toggled", { properties: { enabled: false } });
     } else {
       const ok = await clientRef.current.startScreen();
       if (!ok) toast.error(t("room.shareError"));
+      else trackEvent("screen_share_toggled", { properties: { enabled: true } });
     }
   };
 
@@ -425,6 +447,7 @@ export default function Room() {
       .eq("room_id", room.id)
       .eq("user_id", user.id);
     setLeaving(false);
+    trackEvent("room_left");
     navigate("/home", { replace: true });
   };
 
@@ -546,7 +569,7 @@ export default function Room() {
               <ControlBar
                 micOn={clientState.self.micOn}
                 screenOn={clientState.self.screenOn}
-                onToggleMic={() => clientRef.current?.toggleMic()}
+                onToggleMic={toggleMic}
                 onToggleScreen={toggleScreen}
                 onLeave={() => setLeaveOpen(true)}
               />
