@@ -51,6 +51,20 @@ export function setMicGain(gain: number) {
   localStorage.setItem(MIC_GAIN_KEY, String(Math.min(2, Math.max(0.1, gain))));
 }
 
+/** Per-participant volume override (0..1) or null to follow the global output. */
+export function getPeerVolume(userId: string): number | null {
+  const stored = localStorage.getItem(`labutuca.peerVolume.${userId}`);
+  if (stored === null) return null;
+  const raw = Number(stored);
+  if (!Number.isFinite(raw)) return null;
+  return Math.min(1, Math.max(0, raw));
+}
+
+export function setPeerVolume(userId: string, volume: number | null) {
+  if (volume === null) localStorage.removeItem(`labutuca.peerVolume.${userId}`);
+  else localStorage.setItem(`labutuca.peerVolume.${userId}`, String(Math.min(1, Math.max(0, volume))));
+}
+
 type SinkAudioElement = HTMLMediaElement & {
   setSinkId?: (sinkId: string) => Promise<void>;
 };

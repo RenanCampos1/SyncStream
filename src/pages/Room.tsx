@@ -10,6 +10,7 @@ import {
   Loader2,
   MessageSquare,
   UserRound,
+  UserX,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -18,6 +19,7 @@ import {
   SUPABASE_PUBLISHABLE_KEY,
   SUPABASE_URL,
 } from "@/integrations/supabase/client";
+import { getPeerVolume, setPeerVolume } from "@/lib/audio-settings";
 import { RoomClient, type RoomClientState } from "@/lib/webrtc";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -89,6 +91,7 @@ export default function Room() {
   const roomRef = useRef<string | null>(null);
   const userRef = useRef<string | null>(null);
   const eventsChannelRef = useRef<RealtimeChannel | null>(null);
+  const kicksChannelRef = useRef<RealtimeChannel | null>(null);
 
   // Stable identity values: only the user id is an effect dependency, so auth
   // token refreshes (which replace the user object) never tear the room down.
@@ -102,6 +105,16 @@ export default function Room() {
     sender: string;
     color: CandleColor;
   } | null>(null);
+
+  const [peerVolumes, setPeerVolumes] = useState<Record<string, number | null>>(
+    {},
+  );
+  const [banned, setBanned] = useState(false);
+  const [kicked, setKicked] = useState(false);
+  const [kickTarget, setKickTarget] = useState<{ id: string; name: string } | null>(
+    null,
+  );
+  const [kicking, setKicking] = useState(false);
 
   // Best-effort cleanup when the tab is closed, so the room does not stay
   // registered (and its data does not pile up) after everyone leaves.
@@ -155,6 +168,8 @@ export default function Room() {
       chatChannelRef.current = null;
       void eventsChannelRef.current?.unsubscribe();
       eventsChannelRef.current = null;
+      void kicksChannelRef.current?.unsubscribe();
+      kicksChannelRef.current = null;
     };
 
     void (async () => {
@@ -169,6 +184,19 @@ export default function Room() {
       setRoom(roomRow);
       roomRef.current = roomRow.id;
       userRef.current = userId;
+
+      // Banned users (kicked by the creator) cannot enter this room.
+      const { data: ban } = await supabase
+        .from("room_bans")
+        .select("id")
+        .eq("room_id", roomRow.id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (cancelled) return;
+      if (ban) {
+        setBanned(true);
+        return;
+      }
 
       // Auto-join: add this user to the room membership (idempotent).
       const { data: member } = await supabase
@@ -244,6 +272,29 @@ export default function Room() {
         });
       eventsChannelRef.current = candlesChannel;
 
+      // Kicks: if the creator expels this user, leave the room immediately.
+      const kicksChannel = supabase
+        .channel(`kicks:${roomRow.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "kick_events",
+            filter: `room_id=eq.${roomRow.id}`,
+          },
+          (payload) => {
+            const row = payload.new as { to_user: string };
+            if (!row || row.to_user !== userId) return;
+            console.log("TelaViva: expulso da sala");
+            setKicked(true);
+            void clientRef.current?.leave();
+            window.setTimeout(() => navigate("/home", { replace: true }), 4000);
+          },
+        )
+        .subscribe();
+      kicksChannelRef.current = kicksChannel;
+
       const client = new RoomClient(
         {
           roomId: roomRow.id,
@@ -261,6 +312,25 @@ export default function Room() {
 
     return dispose;
   }, [authLoading, userId, code, navigate]);
+
+  // Hydrate per-participant volume preferences saved earlier.
+  useEffect(() => {
+    if (!clientState) return;
+    setPeerVolumes((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      clientState.peers.forEach((p) => {
+        if (!(p.userId in next)) {
+          const saved = getPeerVolume(p.userId);
+          if (saved !== null) {
+            next[p.userId] = saved;
+            changed = true;
+          }
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [clientState]);
 
   const sendMessage = async (content: string) => {
     if (!room || !user) return;
@@ -296,17 +366,43 @@ export default function Room() {
     );
   };
 
-  const copyInvite = async () => {
+  const copyCode = async () => {
     if (!room) return;
-    const link = `${window.location.origin}/room/${room.code}`;
     try {
-      await navigator.clipboard.writeText(link);
+      await navigator.clipboard.writeText(room.code);
     } catch {
       /* clipboard blocked */
     }
     setCopied(true);
-    toast.success(t("common.copied"));
+    toast.success(t("room.codeCopied"));
     window.setTimeout(() => setCopied(false), 2000);
+  };
+
+  const setVolume = (targetId: string, volume: number | null) => {
+    setPeerVolumes((prev) => ({ ...prev, [targetId]: volume }));
+    setPeerVolume(targetId, volume);
+  };
+
+  const kickUser = async () => {
+    if (!room || !userId || !kickTarget) return;
+    setKicking(true);
+    const del = await supabase
+      .from("room_members")
+      .delete()
+      .eq("room_id", room.id)
+      .eq("user_id", kickTarget.id);
+    console.log("TelaViva: kick removeu membro?", del.error?.message ?? "ok");
+    const ban = await supabase
+      .from("room_bans")
+      .insert({ room_id: room.id, user_id: kickTarget.id });
+    console.log("TelaViva: kick baniu?", ban.error?.message ?? "ok");
+    const evt = await supabase
+      .from("kick_events")
+      .insert({ room_id: room.id, from_user: userId, to_user: kickTarget.id });
+    console.log("TelaViva: kick evento?", evt.error?.message ?? "ok");
+    setKicking(false);
+    setKickTarget(null);
+    toast.success(t("room.kickDone", { name: kickTarget.name }));
   };
 
   const toggleScreen = async () => {
@@ -363,7 +459,7 @@ export default function Room() {
             </div>
             <button
               type="button"
-              onClick={copyInvite}
+              onClick={copyCode}
               className="group mt-0.5 flex items-center gap-1.5 font-mono text-xs tracking-widest text-muted-foreground transition-colors hover:text-primary"
             >
               {room?.code ?? "••••••"}
@@ -382,11 +478,11 @@ export default function Room() {
           <Button
             variant="outline"
             size="sm"
-            onClick={copyInvite}
+            onClick={copyCode}
             className="hidden sm:inline-flex"
           >
             {copied ? <Check /> : <Copy />}
-            {copied ? t("common.copied") : t("room.invite")}
+            {copied ? t("room.codeCopied") : t("room.copyCode")}
           </Button>
           <Button
             variant="ghost"
@@ -411,7 +507,15 @@ export default function Room() {
       <div className="flex min-h-0 flex-1">
         {/* Main stage */}
         <main className="flex min-w-0 flex-1 flex-col">
-          {notFound ? (
+          {banned ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4">
+              <UserX className="h-12 w-12 text-destructive" />
+              <p className="font-semibold">{t("room.banned")}</p>
+              <Button onClick={() => navigate("/home")} variant="outline">
+                {t("notFound.actions.backHome")}
+              </Button>
+            </div>
+          ) : notFound ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3">
               <AlertTriangle className="h-10 w-10 text-destructive" />
               <p className="font-semibold">{t("room.notFound")}</p>
@@ -433,7 +537,11 @@ export default function Room() {
                 </div>
               )}
               <div className="min-h-0 flex-1 overflow-y-auto">
-                <VideoGrid self={clientState.self} peers={clientState.peers} />
+                <VideoGrid
+                  self={clientState.self}
+                  peers={clientState.peers}
+                  volumes={peerVolumes}
+                />
               </div>
               <ControlBar
                 micOn={clientState.self.micOn}
@@ -458,7 +566,11 @@ export default function Room() {
                 <ParticipantList
                   self={self}
                   peers={clientState?.peers ?? []}
+                  volumes={peerVolumes}
+                  isCreator={room?.created_by === userId}
                   onCandle={sendCandle}
+                  onVolume={setVolume}
+                  onKick={(id, name) => setKickTarget({ id, name })}
                 />
               )}
             </TabsContent>
@@ -489,7 +601,11 @@ export default function Room() {
                 <ParticipantList
                   self={self}
                   peers={clientState?.peers ?? []}
+                  volumes={peerVolumes}
+                  isCreator={room?.created_by === userId}
                   onCandle={sendCandle}
+                  onVolume={setVolume}
+                  onKick={(id, name) => setKickTarget({ id, name })}
                 />
               </TabsContent>
               <TabsContent value="chat" className="mt-0 min-h-0 flex-1">
@@ -528,6 +644,45 @@ export default function Room() {
 
       {/* Candle animation received from a colleague */}
       {candle && <CandleOverlay sender={candle.sender} color={candle.color} />}
+
+      {/* Kicked from the room */}
+      {kicked && (
+        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-black/90">
+          <UserX className="h-12 w-12 text-destructive" />
+          <p className="px-6 text-center font-display text-xl font-bold">
+            {t("room.kicked")}
+          </p>
+        </div>
+      )}
+
+      {/* Kick confirmation (creator only) */}
+      <AlertDialog
+        open={kickTarget !== null}
+        onOpenChange={(open) => !open && setKickTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("room.kickConfirm", { name: kickTarget?.name ?? "" })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("room.kickConfirmDesc")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={kicking}>
+              {t("common.close")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={kickUser}
+              disabled={kicking}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {kicking ? t("common.loading") : t("room.kick")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

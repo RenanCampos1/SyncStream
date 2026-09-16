@@ -1,0 +1,68 @@
+
+-- Helper: is the user the creator of the room?
+create or replace function public.is_room_creator(room_id uuid, user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (select 1 from public.rooms r where r.id = $1 and r.created_by = $2);
+$$;
+
+grant execute on function public.is_room_creator(uuid, uuid) to authenticated;
+
+-- Bans: kicked users cannot re-join while the room exists.
+create table public.room_bans (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.rooms(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (room_id, user_id)
+);
+alter table public.room_bans enable row level security;
+
+create policy "bans_select_self" on public.room_bans
+  for select to authenticated using (user_id = auth.uid());
+create policy "bans_insert_creator" on public.room_bans
+  for insert to authenticated with check (public.is_room_creator(room_id, auth.uid()));
+create policy "bans_delete_creator" on public.room_bans
+  for delete to authenticated using (public.is_room_creator(room_id, auth.uid()));
+
+-- Kick events: notify the target in realtime.
+create table public.kick_events (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.rooms(id) on delete cascade,
+  from_user uuid not null references auth.users(id) on delete cascade,
+  to_user uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index kick_events_room_idx on public.kick_events(room_id, created_at);
+alter table public.kick_events enable row level security;
+
+create policy "kicks_select" on public.kick_events
+  for select to authenticated using (
+    to_user = auth.uid()
+    or public.is_room_member(kick_events.room_id, auth.uid())
+  );
+create policy "kicks_insert_creator" on public.kick_events
+  for insert to authenticated with check (public.is_room_creator(kick_events.room_id, auth.uid()));
+
+-- Cleanup: keep the tables small.
+create or replace function public.cleanup_stale_kicks() returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if random() < 0.1 then
+    delete from public.kick_events where created_at < now() - interval '15 minutes';
+    delete from public.room_bans where created_at < now() - interval '7 days';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_cleanup_stale_kicks
+after insert on public.kick_events
+for each row execute function public.cleanup_stale_kicks();
+
+alter publication supabase_realtime add table public.kick_events;

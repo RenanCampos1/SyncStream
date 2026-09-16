@@ -36,20 +36,26 @@ function StreamVideo({
 }
 
 /** Hidden audio element that plays a remote peer's mic track. */
-function RemoteAudio({ stream }: { stream: MediaStream | null }) {
+function RemoteAudio({
+  stream,
+  volume,
+}: {
+  stream: MediaStream | null;
+  volume?: number | null;
+}) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     if (el.srcObject !== stream) el.srcObject = stream;
-    el.volume = getOutputVolume();
+    el.volume = volume ?? getOutputVolume();
     void applyOutputDevice(el, getOutputDeviceId());
     if (stream) {
       void el.play().catch(() => {
         /* autoplay blocked until user interaction — retry handled by React */
       });
     }
-  }, [stream]);
+  }, [stream, volume]);
   return <audio ref={ref} autoPlay playsInline className="hidden" />;
 }
 
@@ -176,10 +182,12 @@ export function VideoTile({
   peer,
   isSelf,
   self,
+  volume,
 }: {
   peer?: RemotePeer;
   isSelf?: boolean;
   self?: SelfState;
+  volume?: number | null;
 }) {
   const { t } = useTranslation();
   const name = isSelf ? (self?.displayName ?? "") : (peer?.displayName ?? "");
@@ -195,7 +203,7 @@ export function VideoTile({
 
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-border bg-black/30">
-      {!isSelf && peer && <RemoteAudio stream={peer.stream} />}
+      {!isSelf && peer && <RemoteAudio stream={peer.stream} volume={volume} />}
       {hasVideo ? (
         <>
           <StreamVideo
@@ -244,9 +252,11 @@ export function VideoTile({
 export function VideoGrid({
   self,
   peers,
+  volumes,
 }: {
   self: SelfState;
   peers: RemotePeer[];
+  volumes?: Record<string, number | null>;
 }) {
   const count = peers.length + 1;
   const cols =
@@ -259,7 +269,7 @@ export function VideoGrid({
   return (
     <div className={cn("grid w-full gap-3 p-4 md:gap-4", cols)}>
       {peers.map((p) => (
-        <VideoTile key={p.userId} peer={p} />
+        <VideoTile key={p.userId} peer={p} volume={volumes?.[p.userId] ?? null} />
       ))}
       <VideoTile isSelf self={self} />
     </div>

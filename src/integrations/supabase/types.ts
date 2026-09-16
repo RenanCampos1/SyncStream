@@ -3397,6 +3397,37 @@ export type Database = {
           },
         ]
       }
+      kick_events: {
+        Row: {
+          created_at: string
+          from_user: string
+          id: string
+          room_id: string
+          to_user: string
+        }
+        Insert: {
+          created_at?: string
+          from_user: string
+          id?: string
+          room_id: string
+          to_user: string
+        }
+        Update: {
+          created_at?: string
+          from_user?: string
+          id?: string
+          room_id?: string
+          to_user?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kick_events_room_id_fkey"
+            columns: ["room_id"]
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           content: string
@@ -3425,6 +3456,34 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "messages_room_id_fkey"
+            columns: ["room_id"]
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      room_bans: {
+        Row: {
+          created_at: string
+          id: string
+          room_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          room_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          room_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_bans_room_id_fkey"
             columns: ["room_id"]
             referencedRelation: "rooms"
             referencedColumns: ["id"]
@@ -3535,6 +3594,10 @@ export type Database = {
           id: string
           name: string
         }
+      }
+      is_room_creator: {
+        Args: { room_id: string; user_id: string }
+        Returns: boolean
       }
       is_room_member: {
         Args: { room_id: string; user_id: string }

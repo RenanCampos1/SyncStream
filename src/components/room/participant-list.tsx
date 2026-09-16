@@ -6,7 +6,10 @@ import {
   MicOff,
   MonitorUp,
   Sparkles,
+  UserX,
   Users,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { cn, initials } from "@/lib/utils";
 import type { RemotePeer, SelfState } from "@/lib/webrtc";
@@ -17,6 +20,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Slider } from "@/components/ui/slider";
+import { Button } from "@/components/ui/button";
 import { Equalizer } from "./video-grid";
 import type { CandleColor } from "./candle-overlay";
 
@@ -29,7 +39,11 @@ function ParticipantRow({
   speaking,
   connected,
   isSelf,
+  isCreator,
+  volume,
   onCandle,
+  onVolume,
+  onKick,
 }: {
   userId: string;
   name: string;
@@ -39,13 +53,19 @@ function ParticipantRow({
   speaking?: boolean;
   connected?: boolean;
   isSelf?: boolean;
+  isCreator?: boolean;
+  volume?: number | null;
   onCandle?: (userId: string, color: CandleColor) => void;
+  onVolume?: (userId: string, volume: number | null) => void;
+  onKick?: (userId: string, name: string) => void;
 }) {
   const { t } = useTranslation();
+  const muted = volume === 0;
+
   return (
     <div
       className={cn(
-        "flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/60",
+        "flex items-center gap-2 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/60",
         speaking && "bg-primary/10",
       )}
     >
@@ -78,23 +98,71 @@ function ParticipantRow({
       </div>
       {screenOn && (
         <span
-          className="flex items-center gap-1 rounded-full bg-primary/15 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-primary"
+          className="flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-primary"
           title={t("room.screenSharing")}
         >
           <MonitorUp className="h-3 w-3" />
         </span>
       )}
       {micOn ? (
-        <Mic className={cn("h-4 w-4 text-muted-foreground", isSelf && "text-primary")} />
+        <Mic className={cn("h-4 w-4 shrink-0 text-muted-foreground", isSelf && "text-primary")} />
       ) : (
-        <MicOff className="h-4 w-4 text-destructive" />
+        <MicOff className="h-4 w-4 shrink-0 text-destructive" />
       )}
+
+      {!isSelf && onVolume && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                "flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-muted",
+                muted ? "text-destructive" : "text-muted-foreground hover:text-foreground",
+              )}
+              aria-label={t("room.volume")}
+              title={t("room.volume")}
+            >
+              {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-60 p-4">
+            <p className="mb-3 truncate text-sm font-semibold">{name}</p>
+            <div className="flex items-center gap-3">
+              {muted ? (
+                <VolumeX className="h-4 w-4 shrink-0 text-destructive" />
+              ) : (
+                <Volume2 className="h-4 w-4 shrink-0 text-primary" />
+              )}
+              <Slider
+                value={[Math.round((volume ?? 1) * 100)]}
+                min={0}
+                max={100}
+                step={5}
+                onValueChange={([v]) => onVolume(userId, v / 100)}
+              />
+            </div>
+            <div className="mt-3 flex justify-between gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onVolume(userId, muted ? (volume === 0 ? 0.5 : volume) : 0)}
+              >
+                {muted ? t("room.unmuteParticipant") : t("room.muteParticipant")}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => onVolume(userId, null)}>
+                {t("room.resetVolume")}
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+
       {!isSelf && onCandle && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-amber-400"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-amber-400"
               aria-label={t("room.candleFor", { name })}
               title={t("room.candleFor", { name })}
             >
@@ -103,14 +171,14 @@ function ParticipantRow({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
-              onClick={() => onCandle(userId, "white")}
+              onClick={() => onCandle?.(userId, "white")}
               className="cursor-pointer"
             >
               <Sparkles className="h-4 w-4 text-amber-400" />
               {t("room.candleWhite")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => onCandle(userId, "black")}
+              onClick={() => onCandle?.(userId, "black")}
               className="cursor-pointer"
             >
               <Ghost className="h-4 w-4 text-fuchsia-400" />
@@ -119,6 +187,18 @@ function ParticipantRow({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+
+      {!isSelf && isCreator && onKick && (
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
+          aria-label={t("room.kick", { name })}
+          title={t("room.kick", { name })}
+          onClick={() => onKick(userId, name)}
+        >
+          <UserX className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 }
@@ -126,11 +206,19 @@ function ParticipantRow({
 export function ParticipantList({
   self,
   peers,
+  volumes,
+  isCreator,
   onCandle,
+  onVolume,
+  onKick,
 }: {
   self: SelfState;
   peers: RemotePeer[];
+  volumes?: Record<string, number | null>;
+  isCreator?: boolean;
   onCandle?: (userId: string, color: CandleColor) => void;
+  onVolume?: (userId: string, volume: number | null) => void;
+  onKick?: (userId: string, name: string) => void;
 }) {
   const { t } = useTranslation();
   const total = peers.length + 1;
@@ -155,7 +243,11 @@ export function ParticipantList({
             screenOn={p.screenOn}
             speaking={p.speaking}
             connected={p.connected}
+            isCreator={isCreator}
+            volume={volumes?.[p.userId] ?? null}
             onCandle={onCandle}
+            onVolume={onVolume}
+            onKick={onKick}
           />
         ))}
         <ParticipantRow
