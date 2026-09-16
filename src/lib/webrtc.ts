@@ -243,23 +243,67 @@ export class RoomClient {
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 15 },
+        video: {
+          // Cap capture resolution and framerate so that encoding a
+          // fullscreen game does not overload the GPU/CPU (the top cause of
+          // game lag while sharing). 1080p30 is a good quality/perf balance.
+          width: { ideal: 1920, max: 1920 },
+          height: { ideal: 1080, max: 1080 },
+          frameRate: { ideal: 15, max: 30 },
+        },
         audio: false,
       });
     } catch {
       return false;
     }
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack) {
+      // Tell the encoder this is fast-moving content (games), so it tunes
+      // itself for motion instead of static detail.
+      try {
+        videoTrack.contentHint = "motion";
+      } catch {
+        /* not supported */
+      }
+    }
     this.localScreen = stream;
     this.screenOn = true;
-    stream.getVideoTracks()[0]?.addEventListener("ended", () =>
-      this.stopScreen(),
-    );
+    videoTrack?.addEventListener("ended", () => this.stopScreen());
     this.peers.forEach((peer) => {
-      stream.getVideoTracks().forEach((t) => peer.pc.addTrack(t, stream));
+      stream.getVideoTracks().forEach((t) => {
+        const sender = peer.pc.addTrack(t, stream);
+        void this.limitScreenBitrate(sender);
+      });
     });
     void this.updatePresence();
     this.emit();
     return true;
+  }
+
+  /**
+   * Cap the screen-share encoding per peer. Without a bitrate ceiling the
+   * encoder can spike (especially on motion-heavy content like games),
+   * saturating the link and forcing re-encodes that make the game lag.
+   */
+  private async limitScreenBitrate(sender: RTCRtpSender) {
+    try {
+      const params = sender.getParameters();
+      const encodings = (params.encodings ?? []).map((enc) => ({
+        ...enc,
+        maxBitrate: 2_500_000, // ~2.5 Mbps is plenty for 1080p screen share
+        maxFramerate: 30,
+      }));
+      if (encodings.length === 0) {
+        encodings.push({ maxBitrate: 2_500_000, maxFramerate: 30 });
+      }
+      await sender.setParameters({
+        ...params,
+        degradationPreference: "balanced",
+        encodings,
+      });
+    } catch (err) {
+      console.warn("TelaViva: não foi possível limitar bitrate da tela", err);
+    }
   }
 
   stopScreen() {
