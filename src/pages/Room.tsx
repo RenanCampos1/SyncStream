@@ -13,7 +13,11 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  supabase,
+  SUPABASE_PUBLISHABLE_KEY,
+  SUPABASE_URL,
+} from "@/integrations/supabase/client";
 import { RoomClient, type RoomClientState } from "@/lib/webrtc";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -78,6 +82,37 @@ export default function Room() {
   const [copied, setCopied] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  const roomRef = useRef<string | null>(null);
+  const userRef = useRef<string | null>(null);
+
+  // Best-effort cleanup when the tab is closed, so the room does not stay
+  // registered (and its data does not pile up) after everyone leaves.
+  useEffect(() => {
+    const onUnload = () => {
+      const roomId = roomRef.current;
+      const uid = userRef.current;
+      if (!roomId || !uid) return;
+      void clientRef.current?.leave();
+      void supabase.auth.getSession().then(({ data }) => {
+        const token = data.session?.access_token;
+        if (!token) return;
+        void fetch(
+          `${SUPABASE_URL}/rest/v1/room_members?room_id=eq.${roomId}&user_id=eq.${uid}`,
+          {
+            method: "DELETE",
+            keepalive: true,
+            headers: {
+              apikey: SUPABASE_PUBLISHABLE_KEY,
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+      });
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, []);
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
@@ -109,6 +144,8 @@ export default function Room() {
         return;
       }
       setRoom(roomRow);
+      roomRef.current = roomRow.id;
+      userRef.current = user.id;
 
       // Auto-join: add this user to the room membership (idempotent).
       const { data: member } = await supabase

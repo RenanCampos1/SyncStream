@@ -58,6 +58,7 @@ type PeerConn = {
   displayName: string;
   avatarUrl: string | null;
   pc: RTCPeerConnection;
+  dc: RTCDataChannel | null;
   stream: MediaStream;
   makingOffer: boolean;
   ignoreOffer: boolean;
@@ -381,6 +382,7 @@ export class RoomClient {
       displayName: p.displayName,
       avatarUrl: p.avatarUrl,
       pc,
+      dc: null,
       stream,
       makingOffer: false,
       ignoreOffer: false,
@@ -390,6 +392,17 @@ export class RoomClient {
       speaking: false,
     };
     this.peers.set(p.userId, peer);
+
+    // A data channel guarantees the connection negotiates and ICE runs even
+    // when there is no media (e.g. microphone blocked inside the preview),
+    // so peers never get stuck on "Conectando...".
+    if (this.isInitiator(p.userId)) {
+      peer.dc = pc.createDataChannel("telaviva");
+    } else {
+      pc.ondatachannel = (e) => {
+        peer.dc = e.channel;
+      };
+    }
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {

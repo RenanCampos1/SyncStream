@@ -95,7 +95,6 @@ export default function Profile() {
   );
   const [testStream, setTestStream] = useState<MediaStream | null>(null);
   const [testing, setTesting] = useState(false);
-  const [enumerating, setEnumerating] = useState(true);
 
   useEffect(() => {
     if (!loading && !user) navigate("/auth", { replace: true });
@@ -119,7 +118,7 @@ export default function Profile() {
         const list = await navigator.mediaDevices.enumerateDevices();
         if (cancelled) return;
         const inputs = list
-          .filter((d) => d.kind === "audioinput")
+          .filter((d) => d.kind === "audioinput" && d.deviceId)
           .map((d) => ({
             deviceId: d.deviceId,
             label: d.label || `Microfone ${d.deviceId.slice(0, 4)}`,
@@ -129,7 +128,6 @@ export default function Profile() {
         /* ignore */
       }
       probe?.getTracks().forEach((tr) => tr.stop());
-      if (!cancelled) setEnumerating(false);
     })();
     return () => {
       cancelled = true;
@@ -342,11 +340,6 @@ export default function Profile() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="default">{t("profile.defaultDevice")}</SelectItem>
-                  {enumerating && (
-                    <SelectItem value="__loading" disabled>
-                      {t("common.loading")}
-                    </SelectItem>
-                  )}
                   {devices.map((d) => (
                     <SelectItem key={d.deviceId} value={d.deviceId}>
                       {d.label}

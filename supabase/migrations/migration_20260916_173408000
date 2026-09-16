@@ -1,0 +1,18 @@
+
+-- Keep signal_messages small: on ~10% of inserts, purge rows older than 30 minutes.
+create or replace function public.cleanup_stale_signals() returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if random() < 0.1 then
+    delete from public.signal_messages where created_at < now() - interval '30 minutes';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_cleanup_stale_signals
+after insert on public.signal_messages
+for each row execute function public.cleanup_stale_signals();
