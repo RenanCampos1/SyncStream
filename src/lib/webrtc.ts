@@ -182,6 +182,13 @@ export class RoomClient {
     return this.screenOn;
   }
 
+  /** Deterministic single-initiator: the user with the larger id sends the
+   *  first offer, so the initial handshake never glares. Renegotiation
+   *  (screen share) is allowed from either side via perfect negotiation. */
+  private isInitiator(otherUserId: string) {
+    return this.userId > otherUserId;
+  }
+
   toggleMic() {
     this.micOn = !this.micOn;
     if (this.localMic) {
@@ -315,7 +322,13 @@ export class RoomClient {
       this.emit();
     };
 
-    pc.onnegotiationneeded = () => void this.onNegotiationNeeded(peer);
+    pc.onnegotiationneeded = () => {
+      // Offer on first connection only if we are the initiator; once the
+      // connection exists (remote description set) either side may renegotiate.
+      if (this.isInitiator(p.userId) || peer.pc.remoteDescription !== null) {
+        void this.onNegotiationNeeded(peer);
+      }
+    };
 
     if (this.localMic) {
       this.localMic.getAudioTracks().forEach((t) => pc.addTrack(t, this.localMic!));
@@ -324,11 +337,21 @@ export class RoomClient {
       this.localScreen.getVideoTracks().forEach((t) => pc.addTrack(t, this.localScreen!));
     }
 
+    // Explicitly kick off the handshake even if no local tracks exist yet
+    // (e.g. microphone blocked), so the peer still connects.
+    if (this.isInitiator(p.userId)) {
+      void this.onNegotiationNeeded(peer);
+    }
+
     this.emit();
   }
 
   private async onNegotiationNeeded(peer: PeerConn) {
-    if (peer.makingOffer || peer.pc.signalingState !== "stable" || this.destroyed) {
+    if (
+      peer.makingOffer ||
+      this.destroyed ||
+      (peer.pc.signalingState !== "stable" && peer.pc.signalingState !== "new")
+    ) {
       return;
     }
     peer.makingOffer = true;
@@ -351,6 +374,16 @@ export class RoomClient {
     if (!peer) {
       const pres = this.presence.get(from_user);
       if (pres) this.createPeer(pres);
+      // An offer can arrive before the presence sync — create the peer from
+      // the offer itself so the handshake is never dropped.
+      if (!this.peers.has(from_user) && payload.type === "offer") {
+        this.createPeer({
+          userId: from_user,
+          displayName: "…",
+          micOn: true,
+          screenOn: false,
+        });
+      }
       peer = this.peers.get(from_user);
     }
     if (!peer) return;

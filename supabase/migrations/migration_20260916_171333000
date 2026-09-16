@@ -1,0 +1,17 @@
+
+create or replace function public.close_empty_room() returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (select 1 from public.room_members where room_id = old.room_id) then
+    delete from public.rooms where id = old.room_id;
+  end if;
+  return old;
+end;
+$$;
+
+create trigger trg_close_empty_room
+after delete on public.room_members
+for each row execute function public.close_empty_room();
