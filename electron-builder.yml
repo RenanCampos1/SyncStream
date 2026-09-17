@@ -1,0 +1,22 @@
+appId: com.labutuca.desktop
+productName: LAButuca
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - electron/**/*
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: LAButuca
+  installerLanguages:
+    - pt_BR
+    - en_US

@@ -67,6 +67,12 @@
   "landing.how.step3.title": "聊天并共享",
   "landing.how.step3.desc": "语音、屏幕和聊天都在同一个房间。",
   "landing.footer.tagline": "为朋友间的实时对话而生。",
+  "landing.download.title": "下载桌面应用",
+  "landing.download.desc": "专属窗口，无标签页限速 — 一键安装并进入。",
+  "landing.download.windows": "下载 Windows 版",
+  "landing.download.mac": "macOS",
+  "landing.download.linux": "Linux",
+  "landing.download.soon": "即将推出",
 
   "auth.login.title": "登录",
   "auth.signup.title": "创建账号",

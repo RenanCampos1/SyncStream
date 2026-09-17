@@ -67,6 +67,12 @@
   "landing.how.step3.title": "Talk and share",
   "landing.how.step3.desc": "Voice, screen and chat in the same room.",
   "landing.footer.tagline": "Made for live conversations between friends.",
+  "landing.download.title": "Get the desktop app",
+  "landing.download.desc": "A dedicated window with no tab throttling — install and launch in one click.",
+  "landing.download.windows": "Download for Windows",
+  "landing.download.mac": "macOS",
+  "landing.download.linux": "Linux",
+  "landing.download.soon": "Coming soon",
 
   "auth.login.title": "Sign in",
   "auth.signup.title": "Create account",

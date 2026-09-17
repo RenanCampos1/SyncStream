@@ -3,12 +3,15 @@ import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   ArrowRight,
+  Download,
   MessageSquare,
   Mic,
   MonitorUp,
   Ticket,
 } from "lucide-react";
+import { trackEvent } from "@enter-pro/analytics-sdk";
 import { Button } from "@/components/ui/button";
+import { DESKTOP_WINDOWS_URL } from "@/lib/download-links";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { BrandLogo } from "@/components/brand-logo";
@@ -243,6 +246,52 @@ export default function Landing() {
           </div>
         </section>
       </main>
+
+      {/* Desktop app download */}
+      <section className="mx-auto max-w-4xl px-6 pb-20 md:pb-24">
+        <div className="relative overflow-hidden rounded-3xl border border-border bg-card/50 p-8 text-center md:p-12">
+          <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-primary/10 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-20 -left-20 h-56 w-56 rounded-full bg-accent/10 blur-3xl" />
+          <h2 className="font-display text-3xl font-bold tracking-tight md:text-4xl">
+            {t("landing.download.title")}
+          </h2>
+          <p className="mx-auto mt-3 max-w-lg text-muted-foreground">
+            {t("landing.download.desc")}
+          </p>
+          <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
+            {DESKTOP_WINDOWS_URL ? (
+              <Button asChild size="lg" className="h-12 rounded-full px-8 text-base font-semibold">
+                <a
+                  href={DESKTOP_WINDOWS_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() =>
+                    trackEvent("desktop_download_clicked", {
+                      eventType: "conversion",
+                    })
+                  }
+                >
+                  <Download />
+                  {t("landing.download.windows")}
+                </a>
+              </Button>
+            ) : (
+              <Button size="lg" disabled className="h-12 rounded-full px-8 text-base font-semibold">
+                <Download />
+                {t("landing.download.windows")}
+              </Button>
+            )}
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span className="rounded-full border border-border bg-card/60 px-3 py-1.5">
+                {t("landing.download.mac")} · {t("landing.download.soon")}
+              </span>
+              <span className="rounded-full border border-border bg-card/60 px-3 py-1.5">
+                {t("landing.download.linux")} · {t("landing.download.soon")}
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <footer className="relative z-10 border-t border-border/60 py-10 text-center">
         <div className="flex items-center justify-center gap-2.5">

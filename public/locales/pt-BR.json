@@ -67,6 +67,12 @@
   "landing.how.step3.title": "Falem e compartilhem",
   "landing.how.step3.desc": "Voz, tela e chat na mesma sala.",
   "landing.footer.tagline": "Feito para conversas ao vivo entre amigos.",
+  "landing.download.title": "Baixe o aplicativo desktop",
+  "landing.download.desc": "Janela dedicada, sem throttling de aba — instale e entre com um clique.",
+  "landing.download.windows": "Baixar para Windows",
+  "landing.download.mac": "macOS",
+  "landing.download.linux": "Linux",
+  "landing.download.soon": "Em breve",
 
   "auth.login.title": "Entrar",
   "auth.signup.title": "Criar conta",
